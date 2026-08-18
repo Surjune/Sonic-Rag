@@ -1,0 +1,42 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# --- Node / frontend ---
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# --- Env / secrets ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Generated vector index & data artifacts ---
+*.faiss
+vector_index.faiss
+metadata.pkl
+*.onnx
+data/cache/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- OS / editor ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,35 @@
+# --- API server ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Validation / config ---
+pydantic==2.10.5
+pydantic-settings==2.7.1
+
+# --- Embeddings (local ONNX, CPU) ---
+fastembed==0.5.1
+
+# --- Vector index ---
+faiss-cpu==1.9.0.post1
+
+# --- Dataset streaming (ai4bharat/MSMARCO-XI) ---
+datasets==3.2.0
+
+# --- LLM generation (Groq LPU) ---
+groq==0.15.0
+
+# --- External HTTP client (Sarvam STT, etc.) ---
+httpx==0.28.1
+
+# --- Retry / circuit breaker support ---
+tenacity==9.0.0
+
+# --- Env loading ---
+python-dotenv==1.0.1
+
+# --- Numerics ---
+numpy==1.26.4
+
+# --- Testing (dev) ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
