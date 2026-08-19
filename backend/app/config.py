@@ -27,6 +27,14 @@ LANG_FILES: dict[str, str] = {
 }
 SUPPORTED_LANGS: tuple[str, ...] = ("hi", "ta", "en")
 
+# --- server -----------------------------------------------------------------
+
+CORS_ORIGINS: list[str] = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+    if origin.strip()
+]
+
 # --- embedding --------------------------------------------------------------
 
 # Quantized ONNX, runs locally on CPU: no network hop, ~10-15ms per query.
@@ -133,6 +141,16 @@ SARVAM_LANG_MAP: dict[str, str] = {"hi-IN": "hi", "ta-IN": "ta", "en-IN": "en"}
 # unbounded uploads are both a cost and an abuse surface.
 MAX_AUDIO_BYTES = 2_000_000
 STT_TIMEOUT_S = float(os.getenv("STT_TIMEOUT_S", "20.0"))
+
+# --- text translation -------------------------------------------------------
+
+# A TYPED Hindi or Tamil question still has to reach an English vector space.
+# Voice already arrives translated via saaras, so this hop only applies to typed
+# Indic input; a Latin-script query skips it entirely and pays nothing.
+# Measured: mayura:v1 243-271ms, sarvam-translate:v1 246-392ms.
+SARVAM_TEXT_TRANSLATE_URL = "https://api.sarvam.ai/translate"
+SARVAM_TEXT_TRANSLATE_MODEL = os.getenv("SARVAM_TEXT_TRANSLATE_MODEL", "mayura:v1")
+LANG_TO_SARVAM_CODE: dict[str, str] = {"hi": "hi-IN", "ta": "ta-IN", "en": "en-IN"}
 
 # --- latency budget ---------------------------------------------------------
 
