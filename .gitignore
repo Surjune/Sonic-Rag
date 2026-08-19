@@ -29,7 +29,9 @@ dist/
 vector_index.faiss
 metadata.pkl
 *.onnx
-data/cache/
+*.parquet
+data/
+backend/data/
 
 # --- Logs ---
 *.log
