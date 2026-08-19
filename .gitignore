@@ -33,6 +33,10 @@ metadata.pkl
 data/
 backend/data/
 
+# Prebuilt index artifacts — shipped to the host, not committed
+artifacts/
+backend/artifacts/
+
 # --- Logs ---
 *.log
 logs/
