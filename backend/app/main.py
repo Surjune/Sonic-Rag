@@ -39,10 +39,13 @@ from app.guardrails import (
     check_grounding,
     check_input,
 )
+from app.chunk_eval import load_cached
+from app.chunkers import STRATEGY_ORDER, get_chunker
 from app.harness import GenerationRequest, GroqHarness
 from app.retrieval import Hit, engine
 from app.stt_service import SarvamSttService
 from app.telemetry import LatencyTrace
+from app.tools import Tool, ToolRegistry
 from app.translation import SarvamTranslator, detect_script
 
 # Recent guardrail decisions, surfaced by the audit-log view. Bounded so a long
@@ -54,11 +57,73 @@ stt: SarvamSttService
 translator: SarvamTranslator
 
 
+def build_tool_registry() -> ToolRegistry:
+    """Tools the model may call.
+
+    Registered here rather than in the harness so the harness stays generic:
+    the API layer is the only place permitted to reach into retrieval.
+    """
+
+    async def search_corpus(query: str, top_k: int = 3) -> dict[str, Any]:
+        """Let the model run its own retrieval when the given context is thin."""
+        if not engine.ready:
+            return {"error": "index not loaded"}
+        bounded = max(1, min(int(top_k), 10))
+        vector = await asyncio.to_thread(engine.embed_query, str(query))
+        hits = engine.search(vector, bounded)
+        return {
+            "query": query,
+            "results": [
+                {"score": round(hit.score, 4), "text": hit.parent_english[:400]} for hit in hits
+            ],
+        }
+
+    async def index_stats() -> dict[str, Any]:
+        """Answer questions about the index without inventing figures."""
+        return {
+            "vectors": engine.size,
+            "similarity_threshold": SIMILARITY_THRESHOLD,
+            "languages": list(SUPPORTED_LANGS),
+            **{k: v for k, v in engine.meta.items() if k in {"model", "dim", "vector_space"}},
+        }
+
+    return ToolRegistry(
+        [
+            Tool(
+                name="search_corpus",
+                description=(
+                    "Search the indexed corpus for passages relevant to a question. "
+                    "Use when the provided context does not cover the question."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "search query in English"},
+                        "top_k": {
+                            "type": "integer",
+                            "description": "how many passages to return (1-10)",
+                            "default": 3,
+                        },
+                    },
+                    "required": ["query"],
+                },
+                handler=search_corpus,
+            ),
+            Tool(
+                name="index_stats",
+                description="Return facts about the retrieval index: size, model, languages.",
+                parameters={"type": "object", "properties": {}},
+                handler=index_stats,
+            ),
+        ]
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load everything expensive once, before the first request arrives."""
     global harness, stt, translator
-    harness = GroqHarness()
+    harness = GroqHarness(tools=build_tool_registry())
     stt = SarvamSttService()
     translator = SarvamTranslator()
 
@@ -116,6 +181,11 @@ class QueryRequest(BaseModel):
         default=True,
         description="set false to run retrieval only; isolates local pipeline latency "
         "from the network-bound model call",
+    )
+    use_tools: bool = Field(
+        default=False,
+        description="let the model call registered tools before answering; costs extra "
+        "round trips, so it is opt-in rather than the default path",
     )
 
 
@@ -244,9 +314,13 @@ async def query(request: QueryRequest) -> Any:
             "latency": trace.as_dict(),
         }
 
+    generation = GenerationRequest(
+        query=english_query, contexts=contexts, language=answer_language
+    )
     with trace.stage("llm"):
-        result = await harness.generate(
-            GenerationRequest(query=english_query, contexts=contexts, language=answer_language)
+        result = await (
+            harness.generate_with_tools(generation) if request.use_tools
+            else harness.generate(generation)
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
 
@@ -267,6 +341,16 @@ async def query(request: QueryRequest) -> Any:
         "contexts": _serialize_hits(hits, answer_language),
         "model": result.model,
         "within_budget": result.within_budget,
+        "tool_rounds": result.tool_rounds,
+        "tool_calls": [
+            {
+                "name": call.name,
+                "ok": call.ok,
+                "latency_ms": round(call.latency_ms, 3),
+                "content": call.content[:400],
+            }
+            for call in result.tool_results
+        ],
         "latency": trace.as_dict(),
     }
 
@@ -431,6 +515,79 @@ async def audit(limit: int = 50) -> dict[str, Any]:
         "blocked_count": sum(1 for entry in AUDIT_LOG if not entry.allowed),
         "total_count": len(AUDIT_LOG),
     }
+
+
+class PreviewRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+    lang: str = Field(default="en")
+    strategies: list[str] = Field(default_factory=lambda: list(STRATEGY_ORDER))
+
+
+@app.post("/api/chunking/preview")
+async def chunking_preview(request: PreviewRequest) -> dict[str, Any]:
+    """Run each strategy over one passage and return the chunks it produces.
+
+    Pure CPU string work with no embedding, so the same text can be compared
+    across strategies instantly and at no cost.
+    """
+    requested = [name for name in request.strategies if name in STRATEGY_ORDER] or list(
+        STRATEGY_ORDER
+    )
+    trace = LatencyTrace()
+    output: list[dict[str, Any]] = []
+
+    for name in requested:
+        chunker = get_chunker(name)
+        with trace.stage(name):
+            chunks = chunker.chunk(request.text, lang=request.lang)
+        sizes = [chunk.length for chunk in chunks]
+        output.append(
+            {
+                "strategy": name,
+                "description": chunker.description,
+                "count": len(chunks),
+                "mean_chars": round(sum(sizes) / len(sizes), 1) if sizes else 0,
+                "min_chars": min(sizes) if sizes else 0,
+                "max_chars": max(sizes) if sizes else 0,
+                "chunks": [
+                    {
+                        "index": chunk.index,
+                        "text": chunk.text,
+                        "embed_text": chunk.embed_text,
+                        "char_start": chunk.char_start,
+                        "char_end": chunk.char_end,
+                        "length": chunk.length,
+                    }
+                    for chunk in chunks
+                ],
+            }
+        )
+
+    return {"source_chars": len(request.text), "strategies": output, "latency": trace.as_dict()}
+
+
+@app.get("/api/chunking/compare")
+async def chunking_compare() -> dict[str, Any]:
+    """Serve the cached strategy comparison.
+
+    Computed offline by `python -m app.chunk_eval`: embedding several thousand
+    chunks four times over takes minutes, which is far too slow to run inside a
+    request. Absent results say so rather than returning invented numbers.
+    """
+    cached = load_cached()
+    if cached is None:
+        return {
+            "available": False,
+            "message": "No comparison has been computed yet.",
+            "how_to_generate": "python -m app.chunk_eval --queries 40",
+        }
+    return {"available": True, **cached}
+
+
+@app.get("/api/tools")
+async def tools_manifest() -> dict[str, Any]:
+    """What the model is allowed to call, for the interface to display."""
+    return {"tools": harness.tools.schemas(), "names": harness.tools.names}
 
 
 @app.get("/api/stats")

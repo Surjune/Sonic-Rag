@@ -2,8 +2,10 @@
 
 import type {
   AuditResponse,
+  CompareResponse,
   HealthResponse,
   Language,
+  PreviewResponse,
   QueryResponse,
   StatsResponse,
 } from './types'
@@ -58,7 +60,12 @@ export async function getStats(): Promise<StatsResponse> {
 
 export async function postQuery(
   query: string,
-  options: { language?: Language | null; topK?: number; generate?: boolean } = {},
+  options: {
+    language?: Language | null
+    topK?: number
+    generate?: boolean
+    useTools?: boolean
+  } = {},
 ): Promise<QueryResponse> {
   const response = await fetch(`${BASE}/api/query`, {
     method: 'POST',
@@ -68,9 +75,26 @@ export async function postQuery(
       language: options.language ?? null,
       top_k: options.topK ?? 5,
       generate: options.generate ?? true,
+      use_tools: options.useTools ?? false,
     }),
   })
   return parse<QueryResponse>(response)
+}
+
+export async function previewChunking(
+  text: string,
+  lang = 'en',
+): Promise<PreviewResponse> {
+  const response = await fetch(`${BASE}/api/chunking/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, lang }),
+  })
+  return parse<PreviewResponse>(response)
+}
+
+export async function getChunkingComparison(): Promise<CompareResponse> {
+  return parse<CompareResponse>(await fetch(`${BASE}/api/chunking/compare`))
 }
 
 export async function postVoice(

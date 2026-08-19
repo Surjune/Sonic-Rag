@@ -6,11 +6,49 @@
  * tokens and returns in the retrieval-only latency.
  */
 
-import { Boxes, Layers, Search, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Boxes, Layers, Loader2, Scissors, Search } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { ChunkPreview } from '../components/ChunkPreview'
+import { StrategyMatrix } from '../components/StrategyMatrix'
 import { Badge, EmptyState, Panel, ScoreMeter, SectionTitle } from '../components/ui'
-import { getStats, postQuery } from '../lib/api'
-import type { QueryResponse, StatsResponse } from '../lib/types'
+import { getChunkingComparison, getStats, postQuery, previewChunking } from '../lib/api'
+import type {
+  CompareResponse,
+  PreviewResponse,
+  QueryResponse,
+  StatsResponse,
+} from '../lib/types'
+
+/** Passages that show each strategy's behaviour, including a Devanagari case. */
+const SAMPLES: { label: string; lang: string; text: string }[] = [
+  {
+    label: 'English passage',
+    lang: 'en',
+    text:
+      'A corporation is a company or group of people authorized to act as a single entity and ' +
+      'recognized as such in law. Early incorporated entities were established by charter, i.e. ' +
+      'by an ad hoc act granted by a monarch or passed by a parliament. Most jurisdictions now ' +
+      'allow the creation of new corporations through registration. Corporations are owned by ' +
+      'their stockholders, who share in profits and losses generated through the firm.',
+  },
+  {
+    label: 'Hindi passage (danda)',
+    lang: 'hi',
+    text:
+      'निगम एक कंपनी या लोगों का समूह होता है जिसे एक एकल इकाई के रूप में कार्य करने के लिए अधिकृत ' +
+      'किया गया है। प्रारंभिक निगमित संस्थाएँ चार्टर द्वारा स्थापित की गई थीं। अधिकांश ' +
+      'क्षेत्राधिकार अब पंजीकरण के माध्यम से नए निगमों के निर्माण की अनुमति देते हैं। निगम अपने ' +
+      'शेयरधारकों के स्वामित्व में होते हैं।',
+  },
+  {
+    label: 'Abbreviations & decimals',
+    lang: 'en',
+    text:
+      'Dr. Rao filed the report on Jan. 3rd. The growth rate was 3.14 percent versus 2.71 the ' +
+      'prior year. Mr. Sharma of A. B. Industries Ltd. disagreed with the U.S. figures. ' +
+      'The board met at 9 a.m. and adjourned at 4.30 p.m. without a decision.',
+  },
+]
 
 /** Mirrors the backend's boundary-aware splitter closely enough to illustrate it. */
 const SENTENCE_BOUNDARY = /(?<=[।॥.!?])\s+/u
@@ -22,11 +60,35 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [comparison, setComparison] = useState<CompareResponse | null>(null)
+  const [preview, setPreview] = useState<PreviewResponse | null>(null)
+  const [sampleIndex, setSampleIndex] = useState(0)
+  const [previewing, setPreviewing] = useState(false)
+
   useEffect(() => {
     getStats()
       .then(setStats)
       .catch(() => setStats(null))
+    getChunkingComparison()
+      .then(setComparison)
+      .catch(() => setComparison({ available: false, message: 'Comparison unavailable.' }))
   }, [])
+
+  const runPreview = useCallback(async (index: number) => {
+    const sample = SAMPLES[index]
+    setPreviewing(true)
+    try {
+      setPreview(await previewChunking(sample.text, sample.lang))
+    } catch {
+      setPreview(null)
+    } finally {
+      setPreviewing(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void runPreview(sampleIndex)
+  }, [sampleIndex, runPreview])
 
   const explore = async () => {
     const text = query.trim()
@@ -71,6 +133,40 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
           text three times for no recall gain.
         </p>
       </Panel>
+
+      <StrategyMatrix report={comparison} />
+
+      <Panel className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SectionTitle
+            icon={<Scissors size={14} className="text-cyan-400" />}
+            title="Split a passage"
+            hint="compare where each strategy cuts"
+          />
+          <div className="flex flex-wrap gap-1">
+            {SAMPLES.map((sample, index) => (
+              <button
+                key={sample.label}
+                type="button"
+                onClick={() => setSampleIndex(index)}
+                disabled={previewing}
+                className={`rounded border px-2 py-1 text-[11px] transition disabled:opacity-40 ${
+                  sampleIndex === index
+                    ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="mt-2 rounded border border-slate-800 bg-slate-950/50 p-2 text-[11px] leading-relaxed text-slate-400">
+          {SAMPLES[sampleIndex].text}
+        </p>
+      </Panel>
+
+      <ChunkPreview preview={preview} />
 
       <Panel className="p-4">
         <SectionTitle
