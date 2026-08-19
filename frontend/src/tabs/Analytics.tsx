@@ -127,6 +127,20 @@ export function Analytics({
 
   const totals = useMemo(() => samples.map((s) => s.latency.total), [samples])
 
+  /**
+   * The request whose total is the median.
+   *
+   * Per-stage percentiles come from different requests each, so summing a P50
+   * column is meaningless -- it can land above or below the median total. This
+   * picks one real request, whose stages genuinely do add up, so the breakdown
+   * can be read additively without lying.
+   */
+  const medianRequest = useMemo(() => {
+    if (samples.length === 0) return null
+    const ordered = [...samples].sort((a, b) => a.latency.total - b.latency.total)
+    return ordered[Math.max(0, Math.ceil(0.5 * ordered.length) - 1)]
+  }, [samples])
+
   const stageRows = useMemo(() => {
     return STAGES.map((stage) => {
       const values = samples
@@ -231,6 +245,11 @@ export function Analytics({
           title="Per-stage percentiles"
           hint="nearest-rank · struck-through values collapse onto the max at this sample size"
         />
+        <p className="mt-2 rounded border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-200/80">
+          These columns do not sum. Each stage's percentile is drawn from a different request, so
+          adding a P50 column can land either side of the total's P50. For an additive view, read
+          the median request breakdown below.
+        </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[10px] tracking-widest text-slate-500 uppercase">
@@ -294,6 +313,54 @@ export function Analytics({
           </table>
         </div>
       </Panel>
+
+      {medianRequest && (
+        <Panel className="p-4">
+          <SectionTitle
+            icon={<Timer size={14} className="text-emerald-400" />}
+            title="Median request breakdown"
+            hint="one real request — these numbers do add up"
+          />
+          <div className="mt-3 space-y-1.5">
+            {STAGES.filter((stage) => stage.key !== 'total').map((stage) => {
+              const value = medianRequest.latency[stage.key]
+              if (typeof value !== 'number') return null
+              const share = (value / medianRequest.latency.total) * 100
+              return (
+                <div key={stage.key} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 text-xs text-slate-400">{stage.label}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-500/70 to-cyan-400"
+                      style={{ width: `${Math.max(0.4, share)}%` }}
+                    />
+                  </div>
+                  <span className="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-slate-300">
+                    {value < 1 ? value.toFixed(2) : value.toFixed(0)}ms
+                  </span>
+                  <span className="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-slate-500">
+                    {share.toFixed(0)}%
+                  </span>
+                </div>
+              )
+            })}
+            <div className="mt-2 flex items-center gap-3 border-t border-slate-800 pt-2">
+              <span className="w-28 shrink-0 text-xs font-medium text-slate-200">Total</span>
+              <div className="flex-1" />
+              <span className="w-20 shrink-0 text-right font-mono text-xs tabular-nums text-cyan-300">
+                {medianRequest.latency.total.toFixed(0)}ms
+              </span>
+              <span className="w-12 shrink-0" />
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+            Stages are timed independently, so they sum to slightly less than the total: the
+            remainder is request parsing, serialization and the gaps between stages. Groq TTFT is
+            time to the <em>first</em> token, which is a subset of the full generation, not the
+            whole of it.
+          </p>
+        </Panel>
+      )}
 
       <Panel className="p-4">
         <SectionTitle title="Recent requests" />
