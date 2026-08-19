@@ -112,6 +112,11 @@ class QueryRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
     language: str | None = Field(default=None, description="answer language; auto-detected if unset")
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=20)
+    generate: bool = Field(
+        default=True,
+        description="set false to run retrieval only; isolates local pipeline latency "
+        "from the network-bound model call",
+    )
 
 
 def _serialize_hits(hits: list[Hit], language: str) -> list[dict[str, Any]]:
@@ -222,6 +227,23 @@ async def query(request: QueryRequest) -> Any:
         }
 
     contexts = engine.build_contexts(hits)
+
+    if not request.generate:
+        # Retrieval-only: everything above is local CPU work, so this measures
+        # the pipeline latency that is actually under our control.
+        return {
+            "answer": "",
+            "grounded": True,
+            "blocked": False,
+            "generated": False,
+            "language": answer_language,
+            "query": {"raw": display_query, "english": english_query},
+            "top_score": round(grounding.top_score, 4),
+            "threshold": grounding.threshold,
+            "contexts": _serialize_hits(hits, answer_language),
+            "latency": trace.as_dict(),
+        }
+
     with trace.stage("llm"):
         result = await harness.generate(
             GenerationRequest(query=english_query, contexts=contexts, language=answer_language)
@@ -230,6 +252,7 @@ async def query(request: QueryRequest) -> Any:
 
     return {
         "answer": result.text,
+        "generated": True,
         "grounded": True,
         "blocked": False,
         "language": answer_language,
