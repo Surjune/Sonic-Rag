@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-void: #05060a;
+  --color-panel: #0b0e17;
+  --color-edge: #1b2233;
+  --color-cyan-glow: #22d3ee;
+  --color-violet-glow: #c026d3;
+  --color-amber-glow: #f59e0b;
+  --color-emerald-glow: #10b981;
+  --color-ruby-glow: #e11d48;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-void);
+  color: #e2e8f0;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Indic glyphs need a font that actually has them; without this Devanagari
+     and Tamil fall back to tofu boxes on a clean Windows install. */
+  font-feature-settings: 'kern';
+  overflow: hidden;
+}
+
+/* Ambient grid, kept behind everything as pure CSS so it costs no draw calls. */
+.grid-backdrop {
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.panel {
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  border: 1px solid var(--color-edge);
+  backdrop-filter: blur(12px);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
