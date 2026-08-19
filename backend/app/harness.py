@@ -43,6 +43,12 @@ from app.exceptions import (
     UpstreamError,
     UpstreamTimeoutError,
 )
+from app.tools import ToolRegistry, ToolResult, parse_tool_calls
+
+# Cap on model -> tool -> model cycles. Without it a model that keeps requesting
+# tools loops until the request times out; three rounds is well beyond what a
+# grounded lookup needs.
+MAX_TOOL_ROUNDS = 3
 
 LANGUAGE_NAMES: dict[str, str] = {"en": "English", "hi": "Hindi", "ta": "Tamil"}
 
@@ -104,6 +110,9 @@ class GenerationResult:
     # True when the model itself declined for lack of usable context, even
     # though retrieval cleared the similarity threshold.
     model_refused: bool = False
+    # Tools the model invoked, in order, with their timings.
+    tool_results: list[ToolResult] = field(default_factory=list)
+    tool_rounds: int = 0
 
 
 class CircuitState(str, Enum):
@@ -177,9 +186,11 @@ class GroqHarness:
         *,
         client: httpx.AsyncClient | None = None,
         model: str = GROQ_MODEL,
+        tools: ToolRegistry | None = None,
     ) -> None:
         self._api_key = api_key if api_key is not None else GROQ_API_KEY
         self._model = model
+        self._tools = tools or ToolRegistry()
         self._breaker = CircuitBreaker()
         # A shared pool with keep-alive: the saved TLS handshake on a warm
         # connection outweighs the entire local compute budget.
@@ -331,6 +342,114 @@ class GroqHarness:
             tokens=len(pieces),
             within_budget=ttft_ms <= TTFT_BUDGET_MS,
             model_refused=is_ungrounded_reply(text),
+        )
+
+    @property
+    def tools(self) -> ToolRegistry:
+        return self._tools
+
+    async def _complete(self, messages: list[dict[str, Any]], use_tools: bool) -> dict[str, Any]:
+        """One non-streaming completion, returning the raw assistant message.
+
+        Tool rounds are non-streaming on purpose: a tool call has no partial
+        form worth showing, and the answer that follows is streamed separately.
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "max_tokens": MAX_OUTPUT_TOKENS,
+            "temperature": 0.0,
+            "stream": False,
+        }
+        if use_tools and len(self._tools):
+            payload["tools"] = self._tools.schemas()
+            payload["tool_choice"] = "auto"
+
+        try:
+            response = await self._client.post(GROQ_API_URL, headers=self._headers(), json=payload)
+        except httpx.TimeoutException as error:
+            self._breaker.record_failure()
+            raise UpstreamTimeoutError(
+                "Generation upstream timed out.", detail=f"exceeded {REQUEST_TIMEOUT_S}s"
+            ) from error
+        except httpx.HTTPError as error:
+            self._breaker.record_failure()
+            raise UpstreamError(
+                "Generation upstream is unreachable.", detail=str(error), retryable=True
+            ) from error
+
+        if response.status_code >= 400:
+            self._breaker.record_failure()
+            raise UpstreamError(
+                f"Generation upstream returned {response.status_code}.",
+                detail=response.text[:300],
+            )
+
+        try:
+            body = response.json()
+        except ValueError as error:
+            self._breaker.record_failure()
+            raise UpstreamError("Generation upstream returned a non-JSON body.") from error
+
+        choices = body.get("choices") or []
+        if not choices:
+            self._breaker.record_failure()
+            raise UpstreamError("Generation upstream returned no choices.")
+
+        self._breaker.record_success()
+        return dict(choices[0].get("message") or {})
+
+    async def generate_with_tools(self, request: GenerationRequest) -> GenerationResult:
+        """Generate, letting the model call registered tools first.
+
+        Runs model -> tools -> model until the model stops asking for tools or
+        MAX_TOOL_ROUNDS is reached. Calls within a single round are executed
+        concurrently, since they are independent by construction: the model
+        issued them together without seeing any of their results.
+        """
+        self._breaker.check()
+        started = time.perf_counter()
+
+        messages: list[dict[str, Any]] = list(build_messages(request))
+        collected: list[ToolResult] = []
+        rounds = 0
+        answer: str | None = None
+
+        while rounds < MAX_TOOL_ROUNDS:
+            message = await self._complete(messages, use_tools=True)
+            calls = parse_tool_calls(message)
+            if not calls:
+                # The model answered instead of calling a tool. That reply IS
+                # the answer; asking again would spend another round trip to
+                # receive the same thing.
+                answer = str(message.get("content") or "").strip()
+                break
+
+            rounds += 1
+            messages.append(message)
+            # Calls issued together are independent by construction: the model
+            # chose them without seeing any of their results.
+            results = await asyncio.gather(*(self._tools.execute(call) for call in calls))
+            collected.extend(results)
+            messages.extend(result.to_message() for result in results)
+
+        if answer is None:
+            # Only reachable at the round cap: force prose by withholding tools,
+            # so a model stuck in a call loop still returns something usable.
+            final = await self._complete(messages, use_tools=False)
+            answer = str(final.get("content") or "").strip()
+
+        total_ms = (time.perf_counter() - started) * 1000
+        return GenerationResult(
+            text=answer,
+            ttft_ms=total_ms,  # non-streaming: the first token arrives with the last
+            total_ms=total_ms,
+            model=self._model,
+            tokens=len(answer.split()),
+            within_budget=total_ms <= TTFT_BUDGET_MS,
+            model_refused=is_ungrounded_reply(answer),
+            tool_results=collected,
+            tool_rounds=rounds,
         )
 
     async def aclose(self) -> None:
