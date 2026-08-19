@@ -64,6 +64,20 @@ class CircuitOpenError(SonicRagError):
     status = 503
 
 
+class InvalidAudioError(SonicRagError):
+    """Uploaded audio is empty, oversized, or otherwise unusable."""
+
+    code = "INVALID_AUDIO"
+    status = 400
+
+
+class TranscriptionError(SonicRagError):
+    """The speech-to-text upstream failed or returned nothing usable."""
+
+    code = "TRANSCRIPTION_FAILED"
+    status = 502
+
+
 class IndexNotLoadedError(SonicRagError):
     """Query arrived before the FAISS artifacts were available."""
 

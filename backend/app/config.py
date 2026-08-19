@@ -108,6 +108,32 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 MAX_CONTEXT_CHUNKS = 4
 MAX_OUTPUT_TOKENS = 512
 
+# --- speech to text (Sarvam) ------------------------------------------------
+
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")
+SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/speech-to-text-translate"
+SARVAM_TRANSCRIBE_URL = "https://api.sarvam.ai/speech-to-text"
+
+# saaras returns ENGLISH text plus the detected source language. That is exactly
+# what the English vector space needs, so a Hindi or Tamil question becomes
+# directly searchable without a separate translation hop.
+# Measured: saaras:v3 506ms and reports language_code; saaras:v2.5 434ms but
+# returned language_code=None, so v3 earns its slightly higher cost.
+SARVAM_TRANSLATE_MODEL = os.getenv("SARVAM_TRANSLATE_MODEL", "saaras:v3")
+
+# saarika returns the NATIVE script, used only to show users their own words.
+# saarika:v2 and saaras:v2 are both deprecated upstream and return 400.
+SARVAM_TRANSCRIBE_MODEL = os.getenv("SARVAM_TRANSCRIBE_MODEL", "saarika:v2.5")
+
+# Sarvam reports e.g. "hi-IN"; the pipeline speaks "hi". Anything outside the
+# supported set is answered in English rather than guessed at.
+SARVAM_LANG_MAP: dict[str, str] = {"hi-IN": "hi", "ta-IN": "ta", "en-IN": "en"}
+
+# ~30 seconds of 16kHz mono PCM. A spoken question never needs more, and
+# unbounded uploads are both a cost and an abuse surface.
+MAX_AUDIO_BYTES = 2_000_000
+STT_TIMEOUT_S = float(os.getenv("STT_TIMEOUT_S", "20.0"))
+
 # --- latency budget ---------------------------------------------------------
 
 # Target time-to-first-token. This is a BUDGET, not a kill switch: responses are
