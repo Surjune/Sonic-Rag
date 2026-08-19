@@ -1,5 +1,6 @@
 /** Live Playground: voice + text input, the 3D orb, and the latency HUD. */
 
+import { AdaptiveDpr } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -153,7 +154,20 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
       {/* Visualizer + input */}
       <div className="flex min-h-0 flex-col gap-4">
         <Panel className="relative min-h-0 flex-1 overflow-hidden">
-          <Canvas camera={{ position: [0, 0, 4.4], fov: 50 }} dpr={[1, 2]}>
+          {/*
+            DPR is capped and adaptive. On an integrated GPU a 2x device pixel
+            ratio quadruples fragment work, and during a local demo the browser
+            and the retrieval backend share the same two cores -- so an
+            over-eager visualizer inflates the very latency it is displaying.
+            AdaptiveDpr drops resolution automatically when frames slow down.
+          */}
+          <Canvas
+            camera={{ position: [0, 0, 4.4], fov: 50 }}
+            dpr={[1, 1.25]}
+            performance={{ min: 0.4, debounce: 200 }}
+            gl={{ antialias: false, powerPreference: 'high-performance' }}
+          >
+            <AdaptiveDpr pixelated />
             <Orb state={state} level={level} />
           </Canvas>
 

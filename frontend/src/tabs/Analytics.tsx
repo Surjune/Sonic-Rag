@@ -6,7 +6,7 @@
  */
 
 import { Activity, Timer, Trash2 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge, EmptyState, Panel, SectionTitle } from '../components/ui'
 import type { LatencySample } from '../lib/types'
 
@@ -92,13 +92,25 @@ function Distribution({ values }: { values: number[] }) {
   )
 }
 
+type Cohort = 'all' | 'text' | 'voice'
+
 export function Analytics({
-  samples,
+  samples: allSamples,
   onClear,
 }: {
   samples: LatencySample[]
   onClear: () => void
 }) {
+  const [cohort, setCohort] = useState<Cohort>('all')
+
+  // Voice requests carry a network STT stage that text requests never pay, so
+  // pooling them produces a bimodal distribution with no honest median. The
+  // filter exists so each cohort can be read on its own terms.
+  const samples = useMemo(
+    () => (cohort === 'all' ? allSamples : allSamples.filter((s) => s.kind === cohort)),
+    [allSamples, cohort],
+  )
+
   const totals = useMemo(() => samples.map((s) => s.latency.total), [samples])
 
   const stageRows = useMemo(() => {
@@ -117,7 +129,32 @@ export function Analytics({
     }).filter((row) => row.n > 0)
   }, [samples])
 
-  if (samples.length === 0) {
+  const cohortTabs: { id: Cohort; label: string }[] = [
+    { id: 'all', label: `All (${allSamples.length})` },
+    { id: 'text', label: `Text (${allSamples.filter((s) => s.kind === 'text').length})` },
+    { id: 'voice', label: `Voice (${allSamples.filter((s) => s.kind === 'voice').length})` },
+  ]
+
+  const cohortPicker = (
+    <div className="flex gap-1">
+      {cohortTabs.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => setCohort(option.id)}
+          className={`rounded border px-2 py-1 text-[11px] transition ${
+            cohort === option.id
+              ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
+              : 'border-slate-700 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (allSamples.length === 0) {
     return (
       <Panel className="h-full">
         <EmptyState message="No requests yet. Ask something in the Playground and the percentiles will build here from real measurements." />
@@ -125,8 +162,30 @@ export function Analytics({
     )
   }
 
+  if (samples.length === 0) {
+    return (
+      <div className="flex h-full flex-col gap-4">
+        <Panel className="flex items-center justify-between p-3">
+          <SectionTitle title="Cohort" hint="voice and text are not pooled" />
+          {cohortPicker}
+        </Panel>
+        <Panel className="flex-1">
+          <EmptyState message="No requests in this cohort yet." />
+        </Panel>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto pr-1">
+      <Panel className="flex flex-wrap items-center justify-between gap-2 p-3">
+        <SectionTitle
+          title="Cohort"
+          hint="voice pays a network STT stage that text never does — pooling them has no honest median"
+        />
+        {cohortPicker}
+      </Panel>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <PercentileCard label="P50 total" value={percentile(totals, 0.5)} tone="cyan" />
         <PercentileCard label="P70 total" value={percentile(totals, 0.7)} tone="cyan" />

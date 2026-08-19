@@ -157,7 +157,13 @@ function Hologram({ state, level }: OrbProps) {
 
   return (
     <mesh ref={meshRef}>
-      <icosahedronGeometry args={[1.35, 32]} />
+      {/*
+        Detail 8 gives 20*(8+1)^2 = 1,620 faces. Detail 32 would be 21,780 --
+        and as wireframe that is ~65k line segments per frame, which starves
+        the CPU this backend is also running on. The noise displacement is
+        low-frequency, so the extra tessellation was invisible anyway.
+      */}
+      <icosahedronGeometry args={[1.35, 8]} />
       <shaderMaterial
         ref={materialRef}
         uniforms={uniforms}
@@ -179,7 +185,9 @@ function Halo({ state, level }: OrbProps) {
   const color = useRef(new THREE.Color(STATE_COLORS.idle))
 
   const geometry = useMemo(() => {
-    const count = 1400
+    // Kept modest on purpose: the halo is atmosphere, and every particle
+    // competes for the same cores that serve retrieval during a local demo.
+    const count = 500
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i += 1) {
       // Even distribution on a shell, jittered so it does not look banded.
