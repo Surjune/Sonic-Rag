@@ -43,6 +43,8 @@ class BlockReason(str, Enum):
     ROLE_HIJACK = "ROLE_HIJACK"
     PROMPT_EXTRACTION = "PROMPT_EXTRACTION"
     DELIMITER_INJECTION = "DELIMITER_INJECTION"
+    UNSAFE_CONTENT = "UNSAFE_CONTENT"
+    PII_DETECTED = "PII_DETECTED"
     UNGROUNDED = "UNGROUNDED"
 
 
@@ -103,6 +105,61 @@ _RULES: tuple[tuple[BlockReason, str, re.Pattern[str]], ...] = (
             re.IGNORECASE,
         ),
     ),
+    # --- unsafe content ---
+    #
+    # These match a request for ACTIONABLE instructions, not a mention of the
+    # topic. A retrieval corpus legitimately contains passages about explosives
+    # in mining or the pharmacology of overdose, and a user is entitled to ask
+    # about them. "How do I build a bomb" is a different act from "what is TNT",
+    # and only the first is matched here.
+    (
+        BlockReason.UNSAFE_CONTENT,
+        "requests actionable instructions for causing physical harm",
+        re.compile(
+            r"\b(how\s+(?:do|can|would)\s+(?:i|you|we)|steps?\s+to|instructions?\s+for"
+            r"|guide\s+to|teach\s+me\s+to|best\s+way\s+to)\b[^.?]{0,40}?"
+            # Stems with \w* so inflections match too: "synthesizing",
+            # "making", "manufacturing" are the same request as the infinitive.
+            r"\b(?:build|mak|construct|synthesi[sz]|manufactur|assembl|obtain|acquir)\w*\b"
+            r"[^.?]{0,30}?\b(bomb|explosive|ied|napalm|nerve\s+agent|sarin|ricin|anthrax"
+            r"|meth(?:amphetamine)?|fentanyl|untraceable\s+(?:gun|weapon)|ghost\s+gun)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        BlockReason.UNSAFE_CONTENT,
+        "requests instructions for harming a person",
+        re.compile(
+            r"\b(how\s+(?:do|can|to)\s*(?:i|you)?|best\s+way\s+to|steps?\s+to)\b"
+            r"[^.?]{0,30}?\b(kill|murder|poison|strangle|stab|assassinate)\b"
+            r"[^.?]{0,20}?\b(some\s?one|a\s+person|people|him|her|them"
+            # Named relations only. A bare "my <word>" also matches "kill my
+            # weeds", which is gardening, not violence.
+            r"|my\s+(?:wife|husband|partner|boss|neighbou?r|friend|family|father|mother"
+            r"|brother|sister|colleague|teacher|roommate))\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        BlockReason.UNSAFE_CONTENT,
+        "requests self-harm or suicide method information",
+        re.compile(
+            r"\b(how\s+(?:do|can|to)\s*(?:i)?|best|painless|easiest|quickest)\b"
+            r"[^.?]{0,25}?\b(kill\s+myself|commit\s+suicide|end\s+my\s+life"
+            r"|hang\s+myself|overdose\s+on)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        BlockReason.UNSAFE_CONTENT,
+        "requests material sexualizing minors",
+        re.compile(
+            r"\b(child|minor|underage|preteen|teen)\b[^.?]{0,20}?"
+            r"\b(porn|sexual|nude|naked|erotic)\b"
+            r"|\b(porn|sexual|nude|erotic)\b[^.?]{0,20}?\b(child|minor|underage)\b",
+            re.IGNORECASE,
+        ),
+    ),
     # Starter coverage for Devanagari and Tamil. These match the literal verbs
     # for "ignore"/"forget" next to "instruction"; they are deliberately narrow
     # and want a native-speaker review pass before being relied on in
@@ -118,6 +175,54 @@ _RULES: tuple[tuple[BlockReason, str, re.Pattern[str]], ...] = (
         re.compile(r"(புறக்கணி|மறந்து)[^.]{0,30}?(அறிவுறுத்தல|கட்டளை)"),
     ),
 )
+
+
+# --- PII -------------------------------------------------------------------
+#
+# Blocked because the query is forwarded to third-party APIs (Sarvam, Groq).
+# Refusing here keeps identifiers out of somebody else's logs, which is a
+# stronger protection than any downstream policy we do not control.
+#
+# Digit sequences are validated, not merely matched: an unvalidated 16-digit
+# pattern flags order numbers and document ids, and blocking ordinary questions
+# is its own failure.
+_PII_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("email address", re.compile(r"\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b")),
+    # Indian mobile numbers: 10 digits starting 6-9, optional +91.
+    ("phone number", re.compile(r"(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\d)")),
+    ("credit card number", re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)")),
+    ("Aadhaar number", re.compile(r"(?<!\d)\d{4}[\s-]?\d{4}[\s-]?\d{4}(?!\d)")),
+    ("US social security number", re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")),
+)
+
+
+def _luhn_valid(digits: str) -> bool:
+    """Luhn checksum, so only plausible card numbers are treated as cards."""
+    total = 0
+    parity = len(digits) % 2
+    for position, character in enumerate(digits):
+        value = int(character)
+        if position % 2 == parity:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+    return total % 10 == 0
+
+
+def detect_pii(text: str) -> str | None:
+    """Return a description of the first PII found, or None."""
+    for label, pattern in _PII_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        if label == "credit card number":
+            digits = re.sub(r"\D", "", match.group(0))
+            # Verify length and checksum; otherwise it is just a long number.
+            if not (13 <= len(digits) <= 19 and _luhn_valid(digits)):
+                continue
+        return label
+    return None
 
 
 @dataclass(frozen=True)
@@ -203,6 +308,20 @@ def check_input(query: str) -> InputVerdict:
                 description=description,
                 matched_text=match.group(0)[:120],
             )
+
+    pii_label = detect_pii(normalized)
+    if pii_label:
+        return InputVerdict(
+            allowed=False,
+            normalized_query=normalized,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            reason=BlockReason.PII_DETECTED,
+            description=f"query contains what looks like a {pii_label}",
+            # The matched value is deliberately NOT recorded: writing it into
+            # the audit log would leak the identifier we just refused to send
+            # to a third party.
+            matched_text="[redacted]",
+        )
 
     return InputVerdict(
         allowed=True,
