@@ -84,6 +84,48 @@ MAX_QUERY_CHARS = 1000
 # in a retrieval product a confident wrong answer is worse than a refusal.
 UNGROUNDED_MESSAGE = "Context not found"
 
+# --- generation (Groq LPU) --------------------------------------------------
+
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# llama-3.1-8b-instant is no longer served by Groq (404 on this account), so the
+# replacement was picked by measuring the models actually available, from India,
+# on TTFT *and* Hindi output quality:
+#
+#   model                 en TTFT   hi TTFT   Hindi output
+#   openai/gpt-oss-20b      659ms     617ms   clean            <- chosen
+#   groq/compound-mini      866ms    1194ms   clean
+#   qwen/qwen3.6-27b        148ms     243ms   leaks <think> blocks
+#   allam-2-7b              158ms     128ms   garbled (Arabic-tuned)
+#
+# The two fast models fail the requirement that actually matters for an Indic
+# RAG product. Re-check availability before a demo; Groq retires models.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Passages sent as context. More context costs prompt-processing time on every
+# request, and the top few chunks carry nearly all the answer signal.
+MAX_CONTEXT_CHUNKS = 4
+MAX_OUTPUT_TOKENS = 512
+
 # --- latency budget ---------------------------------------------------------
 
-LLM_TIMEOUT_MS = int(os.getenv("LLM_TIMEOUT_MS", "150"))
+# Target time-to-first-token. This is a BUDGET, not a kill switch: responses are
+# tagged `within_budget` and the real figure is reported, rather than aborting a
+# working answer for being 20ms late. Aborting would turn a slow success into a
+# user-visible failure and make the reported latency a lie by omission.
+TTFT_BUDGET_MS = int(os.getenv("LLM_TIMEOUT_MS", "150"))
+
+# The actual kill switch, well above the budget, so a genuinely hung upstream
+# cannot pin a request open forever.
+REQUEST_TIMEOUT_S = float(os.getenv("REQUEST_TIMEOUT_S", "10.0"))
+CONNECT_TIMEOUT_S = 3.0
+
+# Circuit breaker: after this many consecutive upstream failures, fail fast for
+# the cooldown instead of making every user wait for the same timeout.
+CIRCUIT_FAILURE_THRESHOLD = 3
+CIRCUIT_RECOVERY_S = 15.0
+
+# Retries only help on connection-level faults; a timeout has already spent the
+# budget, so retrying it just doubles the wait.
+MAX_RETRIES = 1
