@@ -48,11 +48,26 @@ LANGUAGE_NAMES: dict[str, str] = {"en": "English", "hi": "Hindi", "ta": "Tamil"}
 
 SYSTEM_PROMPT = (
     "You answer strictly from the numbered context passages provided. "
-    "If the context does not contain the answer, reply exactly: "
+    "The question may use different wording, spelling or grammar than the passages, "
+    "especially when it came from speech recognition or translation. Answer whenever "
+    "the passages cover the same subject, even if the exact word does not appear. "
+    f"Only if the passages genuinely do not address the subject, reply exactly: "
     f"{UNGROUNDED_MESSAGE}. "
     "Never use outside knowledge and never invent details. "
     "Answer in {language}. Be concise: two or three sentences."
 )
+
+
+def is_ungrounded_reply(text: str) -> bool:
+    """Whether the model itself declined for lack of usable context.
+
+    Retrieval and the model are two independent judges of groundedness and they
+    can disagree: a passage can clear the cosine threshold while the model still
+    finds it unusable. Detecting the refusal lets the caller report what actually
+    happened instead of labelling a refusal as a grounded answer.
+    """
+    normalized = text.strip().rstrip(".").casefold()
+    return normalized == UNGROUNDED_MESSAGE.rstrip(".").casefold()
 
 
 class GenerationRequest(BaseModel):
@@ -86,6 +101,9 @@ class GenerationResult:
     tokens: int = 0
     within_budget: bool = False
     truncated: bool = False
+    # True when the model itself declined for lack of usable context, even
+    # though retrieval cleared the similarity threshold.
+    model_refused: bool = False
 
 
 class CircuitState(str, Enum):
@@ -312,6 +330,7 @@ class GroqHarness:
             model=self._model,
             tokens=len(pieces),
             within_budget=ttft_ms <= TTFT_BUDGET_MS,
+            model_refused=is_ungrounded_reply(text),
         )
 
     async def aclose(self) -> None:

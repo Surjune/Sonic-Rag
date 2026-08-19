@@ -62,7 +62,7 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
   const settle = useCallback(
     (result: QueryResponse, kind: 'text' | 'voice') => {
       setResponse(result)
-      setState(result.blocked ? 'refused' : result.grounded ? 'grounded' : 'refused')
+      setState(result.blocked || !result.grounded ? 'refused' : 'grounded')
       onSample({
         at: Date.now(),
         kind,
@@ -282,6 +282,11 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
                 <SectionTitle title="Answer" />
                 {response.blocked ? (
                   <Badge tone="rose">{response.code ?? 'BLOCKED'}</Badge>
+                ) : response.model_refused ? (
+                  // Retrieval cleared the threshold but the model still found
+                  // the passages unusable. Showing GROUNDED here would
+                  // contradict the refusal printed directly below it.
+                  <Badge tone="amber">MODEL UNGROUNDED</Badge>
                 ) : (
                   <Badge tone="emerald">GROUNDED</Badge>
                 )}

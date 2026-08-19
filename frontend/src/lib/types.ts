@@ -37,6 +37,8 @@ export interface QueryResponse {
   grounded: boolean
   blocked: boolean
   generated?: boolean
+  /** The model declined for lack of usable context, despite retrieval passing. */
+  model_refused?: boolean
   stage?: string
   code?: string
   message?: string

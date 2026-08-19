@@ -253,7 +253,12 @@ async def query(request: QueryRequest) -> Any:
     return {
         "answer": result.text,
         "generated": True,
-        "grounded": True,
+        # Retrieval and the model judge groundedness independently. When the
+        # model declines despite the score clearing the threshold, saying
+        # "grounded" would contradict the answer shown next to it.
+        "grounded": not result.model_refused,
+        "model_refused": result.model_refused,
+        "code": "MODEL_UNGROUNDED" if result.model_refused else None,
         "blocked": False,
         "language": answer_language,
         "query": {"raw": display_query, "english": english_query},
@@ -393,7 +398,9 @@ async def voice(
 
     return {
         "answer": result.text,
-        "grounded": True,
+        "grounded": not result.model_refused,
+        "model_refused": result.model_refused,
+        "code": "MODEL_UNGROUNDED" if result.model_refused else None,
         "blocked": False,
         "language": answer_language,
         "transcript": transcript,

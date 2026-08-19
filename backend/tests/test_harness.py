@@ -21,6 +21,7 @@ from app.harness import (
     GenerationRequest,
     GroqHarness,
     build_messages,
+    is_ungrounded_reply,
 )
 
 
@@ -84,6 +85,44 @@ class TestPromptAssembly:
         content = build_messages(GenerationRequest(query="q", contexts=["c"]))[0]["content"]
         assert "Context not found" in content
         assert "never invent" in content.lower()
+
+
+class TestUngroundedDetection:
+    """Retrieval and the model judge groundedness separately and can disagree."""
+
+    @pytest.mark.parametrize(
+        "reply",
+        ["Context not found", "Context not found.", "  context not found.  ", "CONTEXT NOT FOUND"],
+    )
+    def test_detects_refusal_regardless_of_case_or_punctuation(self, reply: str) -> None:
+        assert is_ungrounded_reply(reply)
+
+    @pytest.mark.parametrize(
+        "reply",
+        [
+            "A corporation is a legal entity.",
+            "",
+            # A real answer that merely mentions the phrase must not be
+            # mistaken for a refusal.
+            "The context not found in the archive was later recovered.",
+        ],
+    )
+    def test_does_not_flag_real_answers(self, reply: str) -> None:
+        assert not is_ungrounded_reply(reply)
+
+    @pytest.mark.asyncio
+    async def test_result_reports_model_refusal(self) -> None:
+        harness = harness_returning(sse("Context not found."))
+        result = await harness.generate(GenerationRequest(query="q", contexts=["c"]))
+        assert result.model_refused is True
+        await harness.aclose()
+
+    @pytest.mark.asyncio
+    async def test_result_not_flagged_for_real_answer(self) -> None:
+        harness = harness_returning(sse("A corporation is a legal entity."))
+        result = await harness.generate(GenerationRequest(query="q", contexts=["c"]))
+        assert result.model_refused is False
+        await harness.aclose()
 
 
 class TestGeneration:
