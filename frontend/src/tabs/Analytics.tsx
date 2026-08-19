@@ -19,6 +19,20 @@ function percentile(values: number[], fraction: number): number {
   return ordered[rank - 1]
 }
 
+/**
+ * Whether a percentile is distinguishable from the maximum at this sample size.
+ *
+ * Nearest-rank picks element ceil(f*n), so any f where ceil(f*n) === n simply
+ * returns the largest sample. At n=5, P90 IS the max -- reporting it as a
+ * distinct figure implies a precision the data does not have. P90 needs n>=10,
+ * P70 needs n>=4.
+ */
+function isMeaningful(count: number, fraction: number): boolean {
+  if (count === 0) return false
+  if (fraction >= 1) return count > 0
+  return Math.ceil(fraction * count) < count
+}
+
 const STAGES: { key: keyof LatencySample['latency']; label: string; budget?: number }[] = [
   { key: 'guardrail_input', label: 'Guardrail in', budget: 0.5 },
   { key: 'stt', label: 'STT' },
@@ -215,7 +229,7 @@ export function Analytics({
         <SectionTitle
           icon={<Timer size={14} className="text-cyan-400" />}
           title="Per-stage percentiles"
-          hint="nearest-rank"
+          hint="nearest-rank · struck-through values collapse onto the max at this sample size"
         />
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -243,10 +257,37 @@ export function Analytics({
                     </span>
                   </td>
                   <td className="py-2 pr-3 text-right text-slate-500">{row.n}</td>
-                  <td className="py-2 pr-3 text-right text-slate-200">{row.p50.toFixed(2)}</td>
-                  <td className="py-2 pr-3 text-right text-slate-400">{row.p70.toFixed(2)}</td>
-                  <td className="py-2 pr-3 text-right text-slate-400">{row.p90.toFixed(2)}</td>
-                  <td className="py-2 text-right text-slate-500">{row.p100.toFixed(2)}</td>
+                  {/*
+                    A percentile that collapses onto the maximum at this sample
+                    size is struck through rather than hidden: the reader can
+                    still see the value, but is not invited to read precision
+                    into it. At n=5, P90 and P100 are the same sample.
+                  */}
+                  {(
+                    [
+                      [row.p50, 0.5, 'text-slate-200'],
+                      [row.p70, 0.7, 'text-slate-400'],
+                      [row.p90, 0.9, 'text-slate-400'],
+                      [row.p100, 1, 'text-slate-500'],
+                    ] as const
+                  ).map(([value, fraction, tone], index) => {
+                    const solid = isMeaningful(row.n, fraction)
+                    return (
+                      <td
+                        key={fraction}
+                        className={`py-2 text-right ${index < 3 ? 'pr-3' : ''} ${
+                          solid ? tone : 'text-slate-600 line-through decoration-slate-700'
+                        }`}
+                        title={
+                          solid
+                            ? undefined
+                            : `n=${row.n} is too small: this percentile is the maximum sample`
+                        }
+                      >
+                        {value.toFixed(2)}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
