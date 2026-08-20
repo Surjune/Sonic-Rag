@@ -15,14 +15,26 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { PipelineState } from '../lib/types'
 
-/** Colour per pipeline state. */
+/**
+ * Colour per pipeline state, retuned for the HH Goa green ground.
+ *
+ * The previous emerald "grounded" was effectively invisible against a forest
+ * green background -- the one state the user most needs to recognise. Each
+ * colour here is checked to stay separable both from the background and from
+ * the other four, which matters more than matching the palette: these encode
+ * what the system is doing, they are not decoration.
+ *
+ * Listening and processing borrow the poster's pink and yellow, which happen to
+ * read well on green anyway. Grounded moves to a bright cyan that the green
+ * cannot swallow, and idle to a calm cream so an idle orb does not look active.
+ */
 export const STATE_COLORS: Record<PipelineState, string> = {
-  idle: '#22d3ee', // cyan
-  listening: '#c026d3', // violet/magenta
-  processing: '#f59e0b', // amber
-  grounded: '#10b981', // emerald
-  refused: '#e11d48', // ruby
-  error: '#e11d48',
+  idle: '#cfe8d8', // pale cream-green, clearly at rest
+  listening: '#ff1e8c', // Goa pink
+  processing: '#f5d914', // Goa yellow
+  grounded: '#4ff0ff', // bright cyan, unmistakable against green
+  refused: '#ff3b30', // red, distinct from the pink of listening
+  error: '#ff3b30',
 }
 
 const VERTEX_SHADER = /* glsl */ `

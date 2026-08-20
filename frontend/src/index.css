@@ -1,27 +1,20 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Base stays near-black. The orb's shader uses additive blending, which only
-     reads as a glow against a dark ground -- on a light surface it washes out
-     entirely. The Goa warmth is layered on top as bloom, not as the base. */
-  --color-void: #08060a;
-  --color-panel: #120e16;
-  --color-edge: #2a2030;
+  /* HH Goa 2026 palette, taken from the event poster: deep forest green
+     ground, bright yellow display type, hot pink accent. The green is dark
+     enough that the orb's additive-blended glow still reads against it. */
+  --color-void: #0b4a2f;
+  --color-green-deep: #073a24;
+  --color-green-mid: #0f5c39;
+  --color-panel: #08351f;
+  --color-edge: #1c6b44;
 
-  /* Goa sunset bloom, used only by the backdrop. */
-  --color-sun-deep: #ff5e3a;
-  --color-sun-mid: #ff9a3c;
-  --color-sun-magenta: #d6336c;
-  --color-sea-teal: #0f4c5c;
+  --color-goa-yellow: #f5d914;
+  --color-goa-pink: #ff1e8c;
+  --color-goa-cream: #f7f3e3;
 
-  /* Functional state colours, deliberately NOT re-tinted to match the backdrop.
-     These encode pipeline state rather than decorate it, and amber in
-     particular has to stay distinguishable from the sunset behind it. */
-  --color-cyan-glow: #22d3ee;
-  --color-violet-glow: #c026d3;
-  --color-amber-glow: #f59e0b;
-  --color-emerald-glow: #10b981;
-  --color-ruby-glow: #e11d48;
+  --font-display: 'Bodoni Moda', 'Playfair Display', Georgia, serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
@@ -33,7 +26,7 @@ body,
 
 body {
   background-color: var(--color-void);
-  color: #e2e8f0;
+  color: var(--color-goa-cream);
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   /* Indic glyphs need a font that actually has them; without this Devanagari
      and Tamil fall back to tofu boxes on a clean Windows install. */
@@ -53,48 +46,57 @@ body {
   position: relative;
   background-color: var(--color-void);
   background-image:
-    /* warm sun low-left, the brightest point */
+    /* Setting sun low-centre, the poster's focal point. Tight stop so it reads
+       as a disc on the horizon rather than a diffuse wash. */
     radial-gradient(
-      ellipse 70% 55% at 18% 88%,
-      color-mix(in srgb, var(--color-sun-deep) 42%, transparent) 0%,
-      transparent 68%
+      circle 38vmin at 50% 108%,
+      color-mix(in srgb, var(--color-goa-yellow) 30%, transparent) 0%,
+      color-mix(in srgb, var(--color-goa-yellow) 12%, transparent) 45%,
+      transparent 72%
     ),
-    /* amber spill above it */
+    /* Pink bloom off to one side, picking up the ribbon colour. */
     radial-gradient(
-      ellipse 60% 45% at 32% 96%,
-      color-mix(in srgb, var(--color-sun-mid) 34%, transparent) 0%,
-      transparent 62%
+      ellipse 55% 45% at 88% 4%,
+      color-mix(in srgb, var(--color-goa-pink) 16%, transparent) 0%,
+      transparent 64%
     ),
-    /* magenta counterpoint, upper right */
-    radial-gradient(
-      ellipse 55% 50% at 88% 8%,
-      color-mix(in srgb, var(--color-sun-magenta) 26%, transparent) 0%,
-      transparent 66%
-    ),
-    /* cool sea tone so the warmth has something to read against */
-    radial-gradient(
-      ellipse 80% 60% at 70% 70%,
-      color-mix(in srgb, var(--color-sea-teal) 30%, transparent) 0%,
-      transparent 70%
-    ),
-    /* horizon band */
+    /* Sea band: the lower half of the poster sits a shade lighter. */
     linear-gradient(
       to bottom,
-      transparent 55%,
-      color-mix(in srgb, var(--color-sun-deep) 10%, transparent) 78%,
-      transparent 100%
+      var(--color-green-deep) 0%,
+      var(--color-void) 42%,
+      var(--color-green-mid) 100%
     ),
-    /* structural grid, warm-tinted and very faint */
-    linear-gradient(rgba(255, 154, 60, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 154, 60, 0.035) 1px, transparent 1px);
+    /* Faint grid, yellow-tinted, for structure under the panels. */
+    linear-gradient(rgba(245, 217, 20, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245, 217, 20, 0.03) 1px, transparent 1px);
   background-size:
-    100% 100%,
-    100% 100%,
     100% 100%,
     100% 100%,
     100% 100%,
     52px 52px,
     52px 52px;
+}
+
+/*
+ * Sun rays, as on the poster.
+ *
+ * A repeating conic gradient masked to a wedge above the horizon. Pure CSS so
+ * it costs no draw calls next to the WebGL canvas.
+ */
+.grid-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background: repeating-conic-gradient(
+    from 200deg at 50% 108%,
+    color-mix(in srgb, var(--color-goa-yellow) 22%, transparent) 0deg 1.1deg,
+    transparent 1.1deg 9deg
+  );
+  -webkit-mask-image: radial-gradient(circle 70vmin at 50% 108%, #000 20%, transparent 78%);
+  mask-image: radial-gradient(circle 70vmin at 50% 108%, #000 20%, transparent 78%);
 }
 
 /*
@@ -128,12 +130,66 @@ body {
  * stronger blur so text stays legible over the brightest part of the gradient.
  */
 .panel {
-  background: color-mix(in srgb, var(--color-panel) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-edge) 85%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-edge) 70%, transparent);
   backdrop-filter: blur(16px) saturate(1.1);
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
-    0 8px 32px -12px rgba(0, 0, 0, 0.6);
+    0 1px 0 0 rgba(247, 243, 227, 0.06) inset,
+    0 8px 32px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* High-contrast condensed serif, as used for FRAME YOUR GOA on the poster. */
+.display-type {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--color-goa-yellow);
+}
+
+/*
+ * The poster's pink marquee ribbon.
+ *
+ * Two copies of the same track scroll side by side; when the first has moved
+ * exactly its own width the second sits where it started, so the loop has no
+ * visible seam. Translating a transform keeps it on the compositor rather than
+ * triggering layout on every frame.
+ */
+.ribbon {
+  background: var(--color-goa-pink);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ribbon-track {
+  display: inline-flex;
+  will-change: transform;
+  animation: ribbon-scroll 38s linear infinite;
+}
+
+.ribbon-track > span {
+  padding-inline: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--color-goa-yellow);
+}
+
+@keyframes ribbon-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Respect reduced-motion: a permanently scrolling banner is a real problem for
+   some readers, so it simply stops rather than slowing down. */
+@media (prefers-reduced-motion: reduce) {
+  .ribbon-track {
+    animation: none;
+  }
 }
 
 ::-webkit-scrollbar {
