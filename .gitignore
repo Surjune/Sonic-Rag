@@ -33,9 +33,21 @@ metadata.pkl
 data/
 backend/data/
 
-# Prebuilt index artifacts — shipped to the host, not committed
-artifacts/
-backend/artifacts/
+# Index artifacts.
+#
+# The FAISS index and its metadata ARE committed, deliberately. Rebuilding them
+# needs the 911MB dataset plus ~35 minutes of CPU embedding, which would make a
+# fresh clone unusable for anyone evaluating the project. At 22MB combined they
+# sit far inside GitHub's limits, and they are a build output that must be
+# shipped to the host regardless.
+#
+# Everything else here stays ignored: benchmark and comparison results are
+# regenerated per machine and would only create noisy diffs.
+artifacts/*
+!backend/artifacts/
+backend/artifacts/*
+!backend/artifacts/vector_index.faiss
+!backend/artifacts/metadata.pkl
 
 # --- Logs ---
 *.log

@@ -1,35 +1,40 @@
+# Versions here are the ones this project is actually verified against, taken
+# from a working environment rather than chosen by hand. The previous file
+# pinned releases that were never installed, so a fresh clone would have built
+# a different environment from the one the tests were run in.
+
 # --- API server ---
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+# Required by FastAPI for File() and Form() parameters. Without it the app
+# raises on startup rather than at request time, so /api/voice cannot even load.
+python-multipart==0.0.32
 
-# --- Validation / config ---
-pydantic==2.10.5
-pydantic-settings==2.7.1
+# --- Validation ---
+pydantic==2.13.4
 
-# --- Embeddings (local ONNX, CPU) ---
-fastembed==0.5.1
+# --- Embeddings (quantized ONNX, local CPU) ---
+fastembed==0.8.0
+onnxruntime==1.29.0
 
 # --- Vector index ---
-faiss-cpu==1.9.0.post1
+faiss-cpu==1.15.0
+numpy==2.5.2
 
-# --- Dataset streaming (ai4bharat/MSMARCO-XI) ---
-datasets==3.2.0
+# --- Dataset access ---
+datasets==5.0.1
+# Imported directly to stream parquet row groups, so it is declared explicitly
+# rather than relied on as a transitive dependency of datasets.
+pyarrow==25.0.1
+# Also imported directly, for resumable model and dataset downloads.
+huggingface_hub==1.28.0
 
-# --- LLM generation (Groq LPU) ---
-groq==0.15.0
-
-# --- External HTTP client (Sarvam STT, etc.) ---
+# --- HTTP client for Groq and Sarvam ---
 httpx==0.28.1
 
-# --- Retry / circuit breaker support ---
-tenacity==9.0.0
+# --- Configuration ---
+python-dotenv==1.2.3
 
-# --- Env loading ---
-python-dotenv==1.0.1
-
-# --- Numerics ---
-numpy==1.26.4
-
-# --- Testing (dev) ---
-pytest==8.3.4
-pytest-asyncio==0.25.2
+# --- Tests ---
+pytest==9.1.1
+pytest-asyncio==1.4.0
