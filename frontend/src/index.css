@@ -1,9 +1,22 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-void: #05060a;
-  --color-panel: #0b0e17;
-  --color-edge: #1b2233;
+  /* Base stays near-black. The orb's shader uses additive blending, which only
+     reads as a glow against a dark ground -- on a light surface it washes out
+     entirely. The Goa warmth is layered on top as bloom, not as the base. */
+  --color-void: #08060a;
+  --color-panel: #120e16;
+  --color-edge: #2a2030;
+
+  /* Goa sunset bloom, used only by the backdrop. */
+  --color-sun-deep: #ff5e3a;
+  --color-sun-mid: #ff9a3c;
+  --color-sun-magenta: #d6336c;
+  --color-sea-teal: #0f4c5c;
+
+  /* Functional state colours, deliberately NOT re-tinted to match the backdrop.
+     These encode pipeline state rather than decorate it, and amber in
+     particular has to stay distinguishable from the sunset behind it. */
   --color-cyan-glow: #22d3ee;
   --color-violet-glow: #c026d3;
   --color-amber-glow: #f59e0b;
@@ -28,18 +41,99 @@ body {
   overflow: hidden;
 }
 
-/* Ambient grid, kept behind everything as pure CSS so it costs no draw calls. */
+/*
+ * Goa sunset backdrop.
+ *
+ * Pure CSS on purpose: the WebGL canvas already competes with the retrieval
+ * backend for CPU on a demo laptop, so the atmosphere must not cost draw calls.
+ * Radial glows sit low in the frame like a sun near the horizon, with a teal
+ * sea tone opposite them, over a horizon band and a faint grid for structure.
+ */
 .grid-backdrop {
+  position: relative;
+  background-color: var(--color-void);
   background-image:
-    linear-gradient(rgba(34, 211, 238, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 211, 238, 0.045) 1px, transparent 1px);
-  background-size: 44px 44px;
+    /* warm sun low-left, the brightest point */
+    radial-gradient(
+      ellipse 70% 55% at 18% 88%,
+      color-mix(in srgb, var(--color-sun-deep) 42%, transparent) 0%,
+      transparent 68%
+    ),
+    /* amber spill above it */
+    radial-gradient(
+      ellipse 60% 45% at 32% 96%,
+      color-mix(in srgb, var(--color-sun-mid) 34%, transparent) 0%,
+      transparent 62%
+    ),
+    /* magenta counterpoint, upper right */
+    radial-gradient(
+      ellipse 55% 50% at 88% 8%,
+      color-mix(in srgb, var(--color-sun-magenta) 26%, transparent) 0%,
+      transparent 66%
+    ),
+    /* cool sea tone so the warmth has something to read against */
+    radial-gradient(
+      ellipse 80% 60% at 70% 70%,
+      color-mix(in srgb, var(--color-sea-teal) 30%, transparent) 0%,
+      transparent 70%
+    ),
+    /* horizon band */
+    linear-gradient(
+      to bottom,
+      transparent 55%,
+      color-mix(in srgb, var(--color-sun-deep) 10%, transparent) 78%,
+      transparent 100%
+    ),
+    /* structural grid, warm-tinted and very faint */
+    linear-gradient(rgba(255, 154, 60, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 154, 60, 0.035) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    52px 52px,
+    52px 52px;
 }
 
+/*
+ * Film grain over the gradients.
+ *
+ * Large flat gradients band visibly on 8-bit displays; a little noise breaks
+ * the banding up. Inline SVG turbulence keeps it a single data URI with no
+ * image request.
+ */
+.grid-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
+}
+
+/* The grain is painted after the content in source order, so without this the
+   overlay would sit on top of every panel and mute the whole interface. */
+.grid-backdrop > * {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Panels read as smoked glass over the sunset rather than opaque slabs.
+ *
+ * Slightly more transparent than before so the warmth shows through, with a
+ * stronger blur so text stays legible over the brightest part of the gradient.
+ */
 .panel {
-  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
-  border: 1px solid var(--color-edge);
-  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--color-panel) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-edge) 85%, transparent);
+  backdrop-filter: blur(16px) saturate(1.1);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+    0 8px 32px -12px rgba(0, 0, 0, 0.6);
 }
 
 ::-webkit-scrollbar {
