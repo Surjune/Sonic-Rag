@@ -42,61 +42,55 @@ body {
  * Radial glows sit low in the frame like a sun near the horizon, with a teal
  * sea tone opposite them, over a horizon band and a faint grid for structure.
  */
+/*
+ * The event's beach illustration as the actual backdrop.
+ *
+ * The artwork carries the sun, rays, palms, shack and sea, so the CSS sun that
+ * used to live here is gone -- two suns in one frame looked like a mistake.
+ *
+ * `fixed` attachment keeps the scene still while panels scroll over it, which
+ * reads as a backdrop rather than as content. Anchored to the bottom so the
+ * beach and palms sit along the lower edge at any window height, with the sun
+ * remaining visible above them.
+ */
 .grid-backdrop {
   position: relative;
   background-color: var(--color-void);
-  background-image:
-    /* Setting sun low-centre, the poster's focal point. Tight stop so it reads
-       as a disc on the horizon rather than a diffuse wash. */
-    radial-gradient(
-      circle 38vmin at 50% 108%,
-      color-mix(in srgb, var(--color-goa-yellow) 30%, transparent) 0%,
-      color-mix(in srgb, var(--color-goa-yellow) 12%, transparent) 45%,
-      transparent 72%
-    ),
-    /* Pink bloom off to one side, picking up the ribbon colour. */
-    radial-gradient(
-      ellipse 55% 45% at 88% 4%,
-      color-mix(in srgb, var(--color-goa-pink) 16%, transparent) 0%,
-      transparent 64%
-    ),
-    /* Sea band: the lower half of the poster sits a shade lighter. */
-    linear-gradient(
-      to bottom,
-      var(--color-green-deep) 0%,
-      var(--color-void) 42%,
-      var(--color-green-mid) 100%
-    ),
-    /* Faint grid, yellow-tinted, for structure under the panels. */
-    linear-gradient(rgba(245, 217, 20, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(245, 217, 20, 0.03) 1px, transparent 1px);
-  background-size:
-    100% 100%,
-    100% 100%,
-    100% 100%,
-    52px 52px,
-    52px 52px;
+  background-image: url('/goa-backdrop.png');
+  background-size: cover;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 /*
- * Sun rays, as on the poster.
+ * Scrim.
  *
- * A repeating conic gradient masked to a wedge above the horizon. Pure CSS so
- * it costs no draw calls next to the WebGL canvas.
+ * The illustration is bright and busy -- a yellow sun and white sand directly
+ * behind a dense dashboard would make small text unreadable. This knocks it
+ * back to atmosphere while keeping the scene legible: darkest at the top where
+ * the header and tab labels sit, lighter toward the bottom so the palms and
+ * shack still show through.
  */
 .grid-backdrop::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.35;
-  background: repeating-conic-gradient(
-    from 200deg at 50% 108%,
-    color-mix(in srgb, var(--color-goa-yellow) 22%, transparent) 0deg 1.1deg,
-    transparent 1.1deg 9deg
-  );
-  -webkit-mask-image: radial-gradient(circle 70vmin at 50% 108%, #000 20%, transparent 78%);
-  mask-image: radial-gradient(circle 70vmin at 50% 108%, #000 20%, transparent 78%);
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-green-deep) 92%, transparent) 0%,
+      color-mix(in srgb, var(--color-green-deep) 78%, transparent) 28%,
+      color-mix(in srgb, var(--color-void) 68%, transparent) 62%,
+      color-mix(in srgb, var(--color-green-deep) 74%, transparent) 100%
+    ),
+    /* Slight vignette so the edges do not compete with the panels. */
+    radial-gradient(
+      ellipse 120% 90% at 50% 50%,
+      transparent 40%,
+      color-mix(in srgb, var(--color-green-deep) 55%, transparent) 100%
+    );
 }
 
 /*
@@ -111,7 +105,9 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.5;
+  /* Light touch now: the illustration brings its own texture, and heavy grain
+     over line art just reads as a dirty screen. */
+  opacity: 0.22;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.32'/%3E%3C/svg%3E");
 }
@@ -129,13 +125,30 @@ body {
  * Slightly more transparent than before so the warmth shows through, with a
  * stronger blur so text stays legible over the brightest part of the gradient.
  */
+/* More opaque than before: these now sit over a bright illustration rather than
+   a flat gradient, and small mono text needs a settled ground to read against. */
 .panel {
-  background: color-mix(in srgb, var(--color-panel) 82%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-edge) 70%, transparent);
-  backdrop-filter: blur(16px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.15);
   box-shadow:
     0 1px 0 0 rgba(247, 243, 227, 0.06) inset,
     0 8px 32px -12px rgba(0, 0, 0, 0.55);
+}
+
+/*
+ * Near-transparent panel for the visualizer.
+ *
+ * Solid panels would cover the illustration almost entirely, leaving it visible
+ * only in the gutters. Letting the hero panel through makes the beach the orb's
+ * environment rather than wallpaper hidden behind the interface -- and the orb
+ * blends additively, so it glows over the scene instead of occluding it.
+ */
+.panel-glass {
+  background: color-mix(in srgb, var(--color-green-deep) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-goa-yellow) 18%, transparent);
+  backdrop-filter: blur(2px);
+  box-shadow: 0 8px 32px -12px rgba(0, 0, 0, 0.5);
 }
 
 /* High-contrast condensed serif, as used for FRAME YOUR GOA on the poster. */

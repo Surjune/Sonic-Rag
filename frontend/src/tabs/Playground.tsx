@@ -214,7 +214,9 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
     <div className="grid h-full grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_400px]">
       {/* Visualizer + input */}
       <div className="flex min-h-0 flex-col gap-4">
-        <Panel className="relative min-h-0 flex-1 overflow-hidden">
+        {/* panel-glass so the beach illustration reads as the orb's setting
+            rather than being hidden behind an opaque surface. */}
+        <Panel className="panel-glass relative min-h-0 flex-1 overflow-hidden">
           {/*
             DPR is capped and adaptive. On an integrated GPU a 2x device pixel
             ratio quadruples fragment work, and during a local demo the browser
