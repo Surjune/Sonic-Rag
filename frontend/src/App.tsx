@@ -9,12 +9,21 @@ import { ChunkExplorer } from './tabs/ChunkExplorer'
 import { Guardrails } from './tabs/Guardrails'
 import { Playground } from './tabs/Playground'
 
+/** Numbered like the Task 1 site's nav, so both submissions read as one identity. */
 const TABS = [
-  { id: 'playground', label: 'Live Playground', icon: Mic },
-  { id: 'analytics', label: 'Latency Analytics', icon: Activity },
-  { id: 'chunks', label: 'Chunking Explorer', icon: Layers },
-  { id: 'guardrails', label: 'Guardrails & Audit', icon: ShieldCheck },
+  { id: 'playground', num: '01', label: 'Live Playground', icon: Mic },
+  { id: 'analytics', num: '02', label: 'Latency Analytics', icon: Activity },
+  { id: 'chunks', num: '03', label: 'Chunking Explorer', icon: Layers },
+  { id: 'guardrails', num: '04', label: 'Guardrails & Audit', icon: ShieldCheck },
 ] as const
+
+const EVENT = {
+  name: 'HH Goa 2026',
+  full: 'Hacker House Goa 2026',
+  task: 'Task 2 · Voice-Enabled Indic RAG',
+  team: 'Tech Mavericks',
+  dates: '28–31 Oct 2026',
+}
 
 type TabId = (typeof TABS)[number]['id']
 
@@ -45,13 +54,19 @@ export default function App() {
 
   return (
     <div className="grid-backdrop flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-slate-800/80 px-5 py-3">
+      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-3">
         <div className="flex items-center gap-2.5">
           <AudioLines className="text-cyan-400" size={20} />
           <div>
-            <h1 className="text-sm font-semibold tracking-tight text-slate-100">Sonic-RAG</h1>
-            <p className="text-[10px] tracking-widest text-slate-500 uppercase">
-              Voice-enabled Indic retrieval
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold tracking-tight text-slate-100">Sonic-RAG</h1>
+              {/* Event badge in the sunset palette, matching the Task 1 site. */}
+              <span className="rounded-full border border-orange-400/40 bg-gradient-to-r from-orange-500/20 to-fuchsia-500/20 px-2 py-0.5 text-[9px] font-medium tracking-widest text-orange-200 uppercase">
+                {EVENT.name}
+              </span>
+            </div>
+            <p className="text-[10px] tracking-widest text-slate-400 uppercase">
+              {EVENT.task}
             </p>
           </div>
         </div>
@@ -76,8 +91,8 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-800/80 px-3 py-2">
-        {TABS.map(({ id, label, icon: Icon }) => {
+      <nav className="flex items-center gap-1 overflow-x-auto border-b border-white/10 px-3 py-2">
+        {TABS.map(({ id, num, label, icon: Icon }) => {
           const active = tab === id
           return (
             <button
@@ -85,21 +100,37 @@ export default function App() {
               type="button"
               onClick={() => setTab(id)}
               className={`relative flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition ${
-                active ? 'text-cyan-300' : 'text-slate-500 hover:text-slate-300'
+                active ? 'text-orange-200' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               {active && (
                 <motion.span
                   layoutId="tab-highlight"
-                  className="absolute inset-0 rounded-lg border border-cyan-500/30 bg-cyan-500/10"
+                  className="absolute inset-0 rounded-lg border border-orange-400/30 bg-gradient-to-r from-orange-500/15 to-fuchsia-500/10"
                   transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                 />
               )}
+              {/* Numbered like the Task 1 nav. */}
+              <span
+                className={`relative font-mono text-[10px] ${
+                  active ? 'text-orange-400/90' : 'text-slate-600'
+                }`}
+              >
+                {num}
+              </span>
               <Icon size={14} className="relative" />
               <span className="relative">{label}</span>
             </button>
           )
         })}
+
+        <div className="ml-auto hidden shrink-0 items-center gap-2 pr-2 sm:flex">
+          <span className="text-[10px] tracking-widest text-slate-600 uppercase">
+            {EVENT.team}
+          </span>
+          <span className="h-3 w-px bg-white/10" />
+          <span className="font-mono text-[10px] text-slate-600">{EVENT.dates}</span>
+        </div>
       </nav>
 
       <main className="min-h-0 flex-1 p-4">
