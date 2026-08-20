@@ -51,6 +51,7 @@ from app.config import (
     SARVAM_TRANSLATE_URL,
     STT_TIMEOUT_S,
 )
+from app.credentials import ROTATABLE_STATUSES, KeyRing
 from app.exceptions import InvalidAudioError, MissingCredentialsError, TranscriptionError
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,8 @@ def validate_audio(audio: bytes) -> None:
 class _HttpSpeechProvider:
     """Shared multipart POST handling for both vendors."""
 
-    def __init__(self, api_key: str, client: httpx.AsyncClient | None = None) -> None:
-        self._api_key = api_key
+    def __init__(self, keys: KeyRing, client: httpx.AsyncClient | None = None) -> None:
+        self._keys = keys
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(STT_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
             limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=300.0),
@@ -108,12 +109,35 @@ class _HttpSpeechProvider:
 
     @property
     def configured(self) -> bool:
-        return bool(self._api_key)
+        return self._keys.configured
+
+    @property
+    def key_label(self) -> str:
+        return self._keys.label
 
     def _headers(self) -> dict[str, str]:
         raise NotImplementedError
 
     async def _post(
+        self, url: str, audio: bytes, filename: str, data: dict[str, str]
+    ) -> dict[str, Any]:
+        """POST, rotating to a backup key if this one is rejected or throttled.
+
+        Quota on a free tier is per-key, so a second key on the same vendor
+        recovers from a 429 that switching vendors cannot.
+        """
+        while True:
+            try:
+                return await self._post_once(url, audio, filename, data)
+            except TranscriptionError as error:
+                if error.status_code not in ROTATABLE_STATUSES or not self._keys.rotate():
+                    raise
+                logger.warning(
+                    "%s rejected with %s, rotating to %s",
+                    self._keys.name, error.status_code, self._keys.label,
+                )
+
+    async def _post_once(
         self, url: str, audio: bytes, filename: str, data: dict[str, str]
     ) -> dict[str, Any]:
         try:
@@ -133,10 +157,12 @@ class _HttpSpeechProvider:
             ) from error
 
         if response.status_code >= 400:
-            raise TranscriptionError(
+            failure = TranscriptionError(
                 f"Speech-to-text upstream returned {response.status_code}.",
                 detail=response.text[:300],
             )
+            failure.status_code = response.status_code
+            raise failure
         try:
             return dict(response.json())
         except ValueError as error:
@@ -154,15 +180,20 @@ class SarvamSttService(_HttpSpeechProvider):
     def __init__(
         self, api_key: str | None = None, *, client: httpx.AsyncClient | None = None
     ) -> None:
-        super().__init__(api_key if api_key is not None else SARVAM_API_KEY, client)
+        keys = (
+            KeyRing.of("SARVAM_API_KEY", api_key)
+            if api_key is not None
+            else KeyRing.from_env("SARVAM_API_KEY")
+        )
+        super().__init__(keys, client)
 
     def _headers(self) -> dict[str, str]:
-        if not self._api_key:
+        if not self._keys.configured:
             raise MissingCredentialsError(
                 "SARVAM_API_KEY is not configured.",
                 detail="Set SARVAM_API_KEY in the environment; see .env.example.",
             )
-        return {"api-subscription-key": self._api_key}
+        return {"api-subscription-key": self._keys.active}
 
     async def transcribe(
         self,
@@ -226,15 +257,20 @@ class GroqWhisperService(_HttpSpeechProvider):
     def __init__(
         self, api_key: str | None = None, *, client: httpx.AsyncClient | None = None
     ) -> None:
-        super().__init__(api_key if api_key is not None else GROQ_API_KEY, client)
+        keys = (
+            KeyRing.of("GROQ_API_KEY", api_key)
+            if api_key is not None
+            else KeyRing.from_env("GROQ_API_KEY")
+        )
+        super().__init__(keys, client)
 
     def _headers(self) -> dict[str, str]:
-        if not self._api_key:
+        if not self._keys.configured:
             raise MissingCredentialsError(
                 "GROQ_API_KEY is not configured.",
                 detail="Speech fallback needs GROQ_API_KEY; see .env.example.",
             )
-        return {"Authorization": f"Bearer {self._api_key}"}
+        return {"Authorization": f"Bearer {self._keys.active}"}
 
     async def transcribe(
         self,

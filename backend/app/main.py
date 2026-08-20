@@ -257,6 +257,9 @@ async def health() -> dict[str, Any]:
         "index_meta": engine.meta,
         "groq_configured": harness.configured,
         "groq_model": GROQ_MODEL,
+        # How many keys are loaded and which is active. Labels only, never
+        # the keys themselves.
+        "groq_key": harness.key_label,
         "circuit": harness.circuit_state.value,
         "stt_configured": stt.configured,
         "stt_providers": stt.providers,

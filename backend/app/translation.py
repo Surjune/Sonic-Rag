@@ -23,6 +23,7 @@ from app.config import (
     SARVAM_TEXT_TRANSLATE_URL,
     STT_TIMEOUT_S,
 )
+from app.credentials import ROTATABLE_STATUSES, KeyRing
 from app.exceptions import MissingCredentialsError, TranscriptionError
 
 # Unicode blocks for the scripts the pipeline supports.
@@ -74,7 +75,11 @@ class SarvamTranslator:
     def __init__(
         self, api_key: str | None = None, *, client: httpx.AsyncClient | None = None
     ) -> None:
-        self._api_key = api_key if api_key is not None else SARVAM_API_KEY
+        self._keys = (
+            KeyRing.of("SARVAM_API_KEY", api_key)
+            if api_key is not None
+            else KeyRing.from_env("SARVAM_API_KEY")
+        )
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(STT_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
             limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=300.0),
@@ -82,7 +87,7 @@ class SarvamTranslator:
 
     @property
     def configured(self) -> bool:
-        return bool(self._api_key)
+        return self._keys.configured
 
     async def to_english(self, text: str, source_language: str | None = None) -> Translation:
         """Translate to English, skipping the call when already English."""
@@ -97,7 +102,7 @@ class SarvamTranslator:
                 translated=False,
             )
 
-        if not self._api_key:
+        if not self._keys.configured:
             raise MissingCredentialsError(
                 "SARVAM_API_KEY is not configured.",
                 detail="Translating a typed Indic query requires the Sarvam key.",
@@ -112,7 +117,7 @@ class SarvamTranslator:
         try:
             response = await self._client.post(
                 SARVAM_TEXT_TRANSLATE_URL,
-                headers={"api-subscription-key": self._api_key, "Content-Type": "application/json"},
+                headers={"api-subscription-key": self._keys.active, "Content-Type": "application/json"},
                 json=payload,
             )
         except httpx.HTTPError as error:
@@ -121,6 +126,9 @@ class SarvamTranslator:
             ) from error
 
         if response.status_code >= 400:
+            # A throttled or rejected key may have a working backup.
+            if response.status_code in ROTATABLE_STATUSES and self._keys.rotate():
+                return await self.to_english(text, source_language)
             raise TranscriptionError(
                 f"Translation upstream returned {response.status_code}.",
                 detail=response.text[:300],

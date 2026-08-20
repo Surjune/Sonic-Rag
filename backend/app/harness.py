@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -37,6 +38,7 @@ from app.config import (
     TTFT_BUDGET_MS,
     UNGROUNDED_MESSAGE,
 )
+from app.credentials import ROTATABLE_STATUSES, KeyRing
 from app.exceptions import (
     CircuitOpenError,
     MissingCredentialsError,
@@ -49,6 +51,8 @@ from app.tools import ToolRegistry, ToolResult, parse_tool_calls
 # tools loops until the request times out; three rounds is well beyond what a
 # grounded lookup needs.
 MAX_TOOL_ROUNDS = 3
+
+logger = logging.getLogger(__name__)
 
 LANGUAGE_NAMES: dict[str, str] = {"en": "English", "hi": "Hindi", "ta": "Tamil"}
 
@@ -188,7 +192,11 @@ class GroqHarness:
         model: str = GROQ_MODEL,
         tools: ToolRegistry | None = None,
     ) -> None:
-        self._api_key = api_key if api_key is not None else GROQ_API_KEY
+        self._keys = (
+            KeyRing.of("GROQ_API_KEY", api_key)
+            if api_key is not None
+            else KeyRing.from_env("GROQ_API_KEY")
+        )
         self._model = model
         self._tools = tools or ToolRegistry()
         self._breaker = CircuitBreaker()
@@ -205,16 +213,27 @@ class GroqHarness:
 
     @property
     def configured(self) -> bool:
-        return bool(self._api_key)
+        return self._keys.configured
+
+    @property
+    def key_label(self) -> str:
+        return self._keys.label
+
+    def _rotate_on(self, status: int) -> bool:
+        """Try a backup key when this one is rejected or throttled."""
+        if status not in ROTATABLE_STATUSES or not self._keys.rotate():
+            return False
+        logger.warning("GROQ_API_KEY rejected with %s, rotating to %s", status, self._keys.label)
+        return True
 
     def _headers(self) -> dict[str, str]:
-        if not self._api_key:
+        if not self._keys.configured:
             raise MissingCredentialsError(
                 "GROQ_API_KEY is not configured.",
                 detail="Set GROQ_API_KEY in the environment; see .env.example.",
             )
         return {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {self._keys.active}",
             "Content-Type": "application/json",
         }
 
@@ -236,7 +255,7 @@ class GroqHarness:
         during startup instead of during a user's first question removes a large
         one-off spike from the measured latency.
         """
-        if not self._api_key:
+        if not self._keys.configured:
             return False
         try:
             await self._client.get("https://api.groq.com/openai/v1/models",
@@ -260,6 +279,10 @@ class GroqHarness:
             ) as response:
                 if response.status_code >= 400:
                     body = (await response.aread()).decode("utf-8", "replace")
+                    if self._rotate_on(response.status_code):
+                        async for piece in self.stream(request):
+                            yield piece
+                        return
                     self._breaker.record_failure()
                     raise UpstreamError(
                         f"Generation upstream returned {response.status_code}.",
@@ -379,6 +402,8 @@ class GroqHarness:
             ) from error
 
         if response.status_code >= 400:
+            if self._rotate_on(response.status_code):
+                return await self._complete(messages, use_tools)
             self._breaker.record_failure()
             raise UpstreamError(
                 f"Generation upstream returned {response.status_code}.",

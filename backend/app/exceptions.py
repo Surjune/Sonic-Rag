@@ -18,6 +18,10 @@ class SonicRagError(Exception):
         super().__init__(message)
         self.message = message
         self.detail = detail
+        # The upstream HTTP status behind this failure, when there was one.
+        # Callers branch on it to decide whether a retry could plausibly differ
+        # -- rotating a key helps on 401/403/429 but not on a 500.
+        self.status_code: int = 0
 
     def to_dict(self) -> dict[str, str]:
         return {"code": self.code, "message": self.message, "detail": self.detail}
