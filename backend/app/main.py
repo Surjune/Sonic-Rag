@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
@@ -41,7 +42,7 @@ from app.guardrails import (
 )
 from app.chunk_eval import load_cached
 from app.chunkers import STRATEGY_ORDER, get_chunker
-from app.harness import GenerationRequest, GroqHarness
+from app.harness import GenerationRequest, GroqHarness, is_ungrounded_reply
 from app.retrieval import Hit, engine
 from app.stt_service import SpeechToText
 from app.telemetry import LatencyTrace
@@ -403,14 +404,33 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         generation = GenerationRequest(
             query=english_query, contexts=contexts, language=answer_language
         )
+        pieces: list[str] = []
+        first_token_at: float | None = None
+        llm_started = time.perf_counter()
         try:
-            async for piece in harness.stream(generation):
-                yield f"event: token\ndata: {json.dumps({'t': piece})}\n\n"
+            with trace.stage("llm"):
+                async for piece in harness.stream(generation):
+                    if first_token_at is None:
+                        first_token_at = time.perf_counter()
+                    pieces.append(piece)
+                    yield f"event: token\ndata: {json.dumps({'t': piece})}\n\n"
         except SonicRagError as error:
             yield f"event: error\ndata: {json.dumps(error.to_dict())}\n\n"
             return
 
-        yield f"event: done\ndata: {json.dumps({'latency': trace.as_dict(), 'grounded': True})}\n\n"
+        if first_token_at is not None:
+            trace.record("llm_ttft", round((first_token_at - llm_started) * 1000, 3))
+        # The model is a second, independent judge of groundedness: a passage
+        # can clear the cosine threshold while the model still finds it
+        # unusable. Checking its actual reply, not just assuming success once
+        # streaming completes, is what makes "grounded" here true rather than
+        # a default.
+        model_refused = is_ungrounded_reply("".join(pieces))
+        yield (
+            "event: done\ndata: "
+            f"{json.dumps({'latency': trace.as_dict(), 'grounded': not model_refused, 'model_refused': model_refused})}"
+            "\n\n"
+        )
 
     return StreamingResponse(
         events(),
@@ -603,14 +623,28 @@ async def voice_stream(
             contexts=engine.build_contexts(hits),
             language=answer_language,
         )
+        pieces: list[str] = []
+        first_token_at: float | None = None
+        llm_started = time.perf_counter()
         try:
-            async for piece in harness.stream(generation):
-                yield f"event: token\ndata: {json.dumps({'t': piece})}\n\n"
+            with trace.stage("llm"):
+                async for piece in harness.stream(generation):
+                    if first_token_at is None:
+                        first_token_at = time.perf_counter()
+                    pieces.append(piece)
+                    yield f"event: token\ndata: {json.dumps({'t': piece})}\n\n"
         except SonicRagError as error:
             yield f"event: error\ndata: {json.dumps(error.to_dict())}\n\n"
             return
 
-        yield f"event: done\ndata: {json.dumps({'latency': trace.as_dict(), 'grounded': True})}\n\n"
+        if first_token_at is not None:
+            trace.record("llm_ttft", round((first_token_at - llm_started) * 1000, 3))
+        model_refused = is_ungrounded_reply("".join(pieces))
+        yield (
+            "event: done\ndata: "
+            f"{json.dumps({'latency': trace.as_dict(), 'grounded': not model_refused, 'model_refused': model_refused})}"
+            "\n\n"
+        )
 
     return StreamingResponse(
         events(),

@@ -173,16 +173,17 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
             const final = {
               ...(partial ?? {}),
               answer,
-              grounded: true,
+              grounded: data.grounded,
+              model_refused: data.model_refused,
               blocked: false,
               latency: data.latency,
             } as QueryResponse
             setResponse(final)
-            setState('grounded')
+            setState(data.grounded ? 'grounded' : 'refused')
             onSample({
               at: Date.now(),
               kind: 'voice',
-              grounded: true,
+              grounded: data.grounded,
               blocked: false,
               latency: data.latency,
             })

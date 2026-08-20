@@ -113,7 +113,11 @@ interface SseHandlers {
   onTranscript?: (data: QueryResponse) => void
   onToken?: (piece: string) => void
   onBlocked?: (data: QueryResponse) => void
-  onDone?: (data: { latency: QueryResponse['latency'] }) => void
+  onDone?: (data: {
+    latency: QueryResponse['latency']
+    grounded: boolean
+    model_refused: boolean
+  }) => void
   onError?: (error: { code: string; message: string }) => void
 }
 
@@ -164,7 +168,9 @@ async function consumeSse(response: Response, handlers: SseHandlers): Promise<vo
           handlers.onBlocked?.(parsed as QueryResponse)
           break
         case 'done':
-          handlers.onDone?.(parsed as { latency: QueryResponse['latency'] })
+          handlers.onDone?.(
+            parsed as { latency: QueryResponse['latency']; grounded: boolean; model_refused: boolean },
+          )
           break
         case 'error':
           handlers.onError?.(parsed as { code: string; message: string })
