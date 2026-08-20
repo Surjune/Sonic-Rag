@@ -137,6 +137,57 @@ body {
   box-shadow: 0 8px 32px -12px rgba(0, 0, 0, 0.5);
 }
 
+/*
+ * HACKER गोवा HOUSE wordmark, sitting in the backdrop behind the interface.
+ *
+ * It was previously baked into the top-left of the illustration, where it was
+ * cropped by the layout and fought the header. Cropped out of the image and
+ * rebuilt as live text so it can be centred, scaled with the viewport, and lit.
+ */
+.goa-wordmark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.14em;
+  user-select: none;
+  font-family: var(--font-display);
+  font-weight: 900;
+  /* Deliberately modest. This is a brand mark, not a hero headline: it should
+     sit above the interface without competing with it. */
+  font-size: clamp(1.05rem, 2.4vw, 1.75rem);
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.goa-wordmark span {
+  color: var(--color-goa-yellow);
+  /*
+   * Depth from hard-edged offset shadows only -- every step has a zero blur
+   * radius, so the letterform stays crisp at any size. Soft glows were tried
+   * and removed: at this scale they smeared the serifs and read as a screen
+   * that needed cleaning rather than as lighting.
+   */
+  text-shadow:
+    0 1px 0 #c4ab0f,
+    0 2px 0 #a89308,
+    0 3px 0 #8c7a06;
+}
+
+/* गोवा keeps the poster's rotated pink chip. */
+.goa-wordmark .goa-chip {
+  font-family: ui-sans-serif, system-ui, 'Nirmala UI', sans-serif;
+  font-size: 0.52em;
+  font-weight: 700;
+  color: var(--color-goa-yellow);
+  background: var(--color-goa-pink);
+  padding: 0.1em 0.32em 0.18em;
+  border-radius: 0.14em;
+  transform: rotate(-6deg);
+  letter-spacing: 0;
+  text-shadow: 0 1px 0 #b31563;
+}
+
 /* High-contrast condensed serif, as used for FRAME YOUR GOA on the poster. */
 .display-type {
   font-family: var(--font-display);

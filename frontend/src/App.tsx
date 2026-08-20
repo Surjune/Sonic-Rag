@@ -55,26 +55,41 @@ export default function App() {
 
   return (
     <div className="grid-backdrop flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-3">
-        <div className="flex items-center gap-3">
-          <AudioLines style={{ color: 'var(--color-goa-yellow)' }} size={22} />
-          <div>
-            <div className="flex flex-wrap items-baseline gap-2">
-              <h1 className="display-type text-xl leading-none">SONIC&nbsp;RAG</h1>
-              <span
-                className="rounded-full px-2 py-0.5 font-mono text-[9px] tracking-widest uppercase"
-                style={{ background: 'var(--color-goa-pink)', color: 'var(--color-goa-yellow)' }}
-              >
-                {EVENT.name}
-              </span>
-            </div>
-            <p className="mt-0.5 font-mono text-[10px] tracking-[0.22em] text-emerald-100/60 uppercase">
-              {EVENT.task}
-            </p>
+      {/*
+        One row: product on the left, event wordmark centred, status on the
+        right. The wordmark is absolutely positioned rather than placed in the
+        flow, because the two side blocks have different widths and a flex
+        `mx-auto` would push it off-centre by the difference. Hidden below xl,
+        where the sides would otherwise collide with it.
+      */}
+      <header className="relative flex shrink-0 items-center gap-3 border-b border-white/10 px-5 py-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <AudioLines style={{ color: 'var(--color-goa-yellow)' }} size={20} className="shrink-0" />
+          <h1 className="display-type text-lg leading-none whitespace-nowrap">SONIC&nbsp;RAG</h1>
+          <span
+            className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[9px] tracking-widest uppercase"
+            style={{ background: 'var(--color-goa-pink)', color: 'var(--color-goa-yellow)' }}
+          >
+            {EVENT.name}
+          </span>
+          <span className="hidden h-3.5 w-px shrink-0 bg-white/15 lg:block" />
+          <p className="hidden truncate font-mono text-[10px] tracking-[0.2em] text-emerald-100/55 uppercase lg:block">
+            {EVENT.task}
+          </p>
+        </div>
+
+        <div
+          className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 xl:block"
+          aria-hidden="true"
+        >
+          <div className="goa-wordmark">
+            <span>HACKER</span>
+            <span className="goa-chip">गोवा</span>
+            <span>HOUSE</span>
           </div>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
           {healthError ? (
             <Badge tone="rose">backend unreachable</Badge>
           ) : health ? (
