@@ -127,7 +127,16 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 # Passages sent as context. More context costs prompt-processing time on every
 # request, and the top few chunks carry nearly all the answer signal.
 MAX_CONTEXT_CHUNKS = 4
-MAX_OUTPUT_TOKENS = 512
+
+# openai/gpt-oss-20b is a reasoning model: it can spend this whole budget on
+# internal reasoning (returned in a separate `reasoning` field) before ever
+# emitting visible `content`, which surfaces as an empty response with no
+# retry possible -- the tokens are already spent. Groq's own default for
+# max_completion_tokens is 1024, with their docs noting even that "may be too
+# low for complex reasoning"; this was set to half that. Raised to match
+# their default, paired with reasoning_effort="low" in the harness to reduce
+# how much budget reasoning itself consumes.
+MAX_OUTPUT_TOKENS = 1024
 
 # --- speech to text (Sarvam) ------------------------------------------------
 

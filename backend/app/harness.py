@@ -237,8 +237,19 @@ class GroqHarness:
             "Content-Type": "application/json",
         }
 
+    def _reasoning_effort(self) -> str | None:
+        """Cap reasoning depth for GPT-OSS models.
+
+        Groq exposes reasoning_effort only for this model family (other
+        models use an unrelated reasoning_format parameter instead). Without
+        a cap, the model can spend the full output-token budget reasoning and
+        never reach visible content, which is otherwise indistinguishable
+        from an upstream failure.
+        """
+        return "low" if "gpt-oss" in self._model else None
+
     def _payload(self, request: GenerationRequest, stream: bool) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "model": self._model,
             "messages": build_messages(request),
             "max_tokens": MAX_OUTPUT_TOKENS,
@@ -247,6 +258,10 @@ class GroqHarness:
             "temperature": 0.0,
             "stream": stream,
         }
+        effort = self._reasoning_effort()
+        if effort:
+            payload["reasoning_effort"] = effort
+        return payload
 
     async def warmup(self) -> bool:
         """Open a TLS connection ahead of the first real request.
@@ -384,6 +399,9 @@ class GroqHarness:
             "temperature": 0.0,
             "stream": False,
         }
+        effort = self._reasoning_effort()
+        if effort:
+            payload["reasoning_effort"] = effort
         if use_tools and len(self._tools):
             payload["tools"] = self._tools.schemas()
             payload["tool_choice"] = "auto"
