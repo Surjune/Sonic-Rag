@@ -10,9 +10,22 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # --- paths ------------------------------------------------------------------
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+# Load .env here, from a path anchored to this file, rather than relying on the
+# caller to do it. A relative path in a launch command resolves against the
+# working directory, so starting the server from the repo root instead of
+# backend/ silently loaded nothing and every API key read as empty -- which
+# surfaced as a 503 on /api/voice that looked like a missing credential rather
+# than a missing file. Anchoring removes the whole class of failure.
+# override=False so a real environment variable, as set by a host's secret
+# manager, always beats a stale local file.
+load_dotenv(BACKEND_DIR.parent / ".env", override=False)
+load_dotenv(BACKEND_DIR / ".env", override=False)
 DATA_DIR = BACKEND_DIR / "data" / "msmarco-xi" / "validation"
 ARTIFACT_DIR = BACKEND_DIR / "artifacts"
 
@@ -141,6 +154,20 @@ SARVAM_LANG_MAP: dict[str, str] = {"hi-IN": "hi", "ta-IN": "ta", "en-IN": "en"}
 # unbounded uploads are both a cost and an abuse surface.
 MAX_AUDIO_BYTES = 2_000_000
 STT_TIMEOUT_S = float(os.getenv("STT_TIMEOUT_S", "20.0"))
+
+# --- speech-to-text fallback (Groq Whisper) ---------------------------------
+#
+# Sarvam is the primary: it is purpose-built for Indic speech and returns the
+# detected language. Whisper on Groq is the standby, used when Sarvam has no
+# key, rejects the key, or fails. Two providers on different vendors means one
+# outage does not take voice input down during a demo.
+#
+# Translations run on whisper-large-v3 because the turbo variant is
+# transcription-only; transcription itself uses turbo, which is faster.
+GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_TRANSLATE_URL = "https://api.groq.com/openai/v1/audio/translations"
+GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+GROQ_WHISPER_TRANSLATE_MODEL = os.getenv("GROQ_WHISPER_TRANSLATE_MODEL", "whisper-large-v3")
 
 # --- text translation -------------------------------------------------------
 

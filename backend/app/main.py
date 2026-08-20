@@ -43,7 +43,7 @@ from app.chunk_eval import load_cached
 from app.chunkers import STRATEGY_ORDER, get_chunker
 from app.harness import GenerationRequest, GroqHarness
 from app.retrieval import Hit, engine
-from app.stt_service import SarvamSttService
+from app.stt_service import SpeechToText
 from app.telemetry import LatencyTrace
 from app.tools import Tool, ToolRegistry
 from app.translation import SarvamTranslator, detect_script
@@ -53,7 +53,7 @@ from app.translation import SarvamTranslator, detect_script
 AUDIT_LOG: Deque[AuditEntry] = deque(maxlen=200)
 
 harness: GroqHarness
-stt: SarvamSttService
+stt: SpeechToText
 translator: SarvamTranslator
 
 
@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load everything expensive once, before the first request arrives."""
     global harness, stt, translator
     harness = GroqHarness(tools=build_tool_registry())
-    stt = SarvamSttService()
+    stt = SpeechToText()
     translator = SarvamTranslator()
 
     try:
@@ -258,7 +258,8 @@ async def health() -> dict[str, Any]:
         "groq_configured": harness.configured,
         "groq_model": GROQ_MODEL,
         "circuit": harness.circuit_state.value,
-        "sarvam_configured": stt.configured,
+        "stt_configured": stt.configured,
+        "stt_providers": stt.providers,
         "similarity_threshold": SIMILARITY_THRESHOLD,
         "ttft_budget_ms": TTFT_BUDGET_MS,
     }
@@ -421,7 +422,13 @@ async def voice(
     audio = await file.read()
 
     with trace.stage("stt"):
-        transcription = await stt.transcribe(audio, filename=file.filename or "audio.wav")
+        # The caller's language choice is a stronger signal than the fallback
+        # provider's guess, which mishears Hindi as Urdu.
+        transcription = await stt.transcribe(
+            audio,
+            filename=file.filename or "audio.wav",
+            language_hint=language if language in SUPPORTED_LANGS else None,
+        )
 
     answer_language = language if language in SUPPORTED_LANGS else transcription.language
 
@@ -451,10 +458,15 @@ async def voice(
         grounding = check_grounding(scores)
     AUDIT_LOG.appendleft(audit_grounding(grounding, verdict.normalized_query))
 
+    # Which provider answered is part of the result, not a hidden detail: a
+    # silent failover nobody can see is a debugging trap.
+    trace.record("stt_provider_latency", round(transcription.latency_ms, 3))
     transcript = {
         "native": transcription.native_text,
         "english": transcription.english_text,
         "detected_language": transcription.detected_language_code,
+        "provider": transcription.provider,
+        "fallback_reason": transcription.fallback_reason,
     }
 
     if not grounding.allowed:
