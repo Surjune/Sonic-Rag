@@ -26,6 +26,42 @@ export interface RecorderHandle {
   cancel: () => void
 }
 
+/**
+ * Amplitude below which a sample counts as silence.
+ *
+ * Deliberately low. Trimming too aggressively clips the quiet onset of a word,
+ * which corrupts the transcript -- a far worse outcome than sending a few extra
+ * kilobytes.
+ */
+const SILENCE_THRESHOLD = 0.01
+
+/** Speech kept either side of the detected range, so onsets survive. */
+const SILENCE_PADDING_SAMPLES = 1600 // 100ms at 16kHz
+
+/**
+ * Drop leading and trailing silence.
+ *
+ * A recording starts when the user clicks and ends when they click again, so it
+ * reliably contains dead air at both ends. That silence costs upload time on
+ * venue wifi and gives the speech model more audio to chew through, while
+ * carrying no information.
+ */
+export function trimSilence(samples: Float32Array): Float32Array {
+  let start = 0
+  let end = samples.length - 1
+
+  while (start < samples.length && Math.abs(samples[start]) < SILENCE_THRESHOLD) start += 1
+  while (end > start && Math.abs(samples[end]) < SILENCE_THRESHOLD) end -= 1
+
+  // Entirely silent: return it untouched rather than an empty buffer, so the
+  // server reports "no speech recognized" instead of rejecting an empty upload.
+  if (start >= end) return samples
+
+  const from = Math.max(0, start - SILENCE_PADDING_SAMPLES)
+  const to = Math.min(samples.length, end + SILENCE_PADDING_SAMPLES)
+  return samples.subarray(from, to)
+}
+
 /** Encode float PCM samples as a 16-bit mono WAV. */
 export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const buffer = new ArrayBuffer(44 + samples.length * 2)
@@ -138,7 +174,7 @@ export async function startRecording(): Promise<RecorderHandle> {
         merged.set(chunk, offset)
         offset += chunk.length
       }
-      return encodeWav(merged, sampleRate)
+      return encodeWav(trimSilence(merged), sampleRate)
     },
     cancel: teardown,
   }

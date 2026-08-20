@@ -149,5 +149,15 @@ class SarvamTranslator:
             translated=True,
         )
 
+    async def warmup(self) -> bool:
+        """Pre-connect so a typed Indic query does not pay the TLS handshake."""
+        if not self._keys.configured:
+            return False
+        try:
+            await self._client.head(SARVAM_TEXT_TRANSLATE_URL, timeout=CONNECT_TIMEOUT_S)
+        except httpx.HTTPError:
+            return False
+        return True
+
     async def aclose(self) -> None:
         await self._client.aclose()

@@ -135,7 +135,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # container crash-looping with the reason buried in logs.
         pass
 
-    await harness.warmup()
+    # Pre-connect every upstream concurrently. The first HTTPS call to each host
+    # pays DNS plus a TLS handshake; paying it here keeps it out of the first
+    # user's measured latency.
+    await asyncio.gather(
+        harness.warmup(), stt.warmup(), translator.warmup(), return_exceptions=True
+    )
     yield
 
     await harness.aclose()
@@ -509,6 +514,109 @@ async def voice(
         "within_budget": result.within_budget,
         "latency": trace.as_dict(),
     }
+
+
+@app.post("/api/voice/stream")
+async def voice_stream(
+    file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    top_k: int = Form(default=DEFAULT_TOP_K),
+) -> StreamingResponse:
+    """Voice in, answer streamed out.
+
+    The non-streaming /api/voice waits for the whole answer before replying, so
+    the user stares at nothing for the full generation. Here the transcript is
+    emitted the moment speech recognition returns, context as soon as retrieval
+    finishes, and tokens as they arrive -- so the first readable output lands at
+    time-to-first-token rather than at completion.
+    """
+    # Read the upload before the generator starts: the request body is not
+    # guaranteed to still be readable once streaming has begun.
+    audio = await file.read()
+    filename = file.filename or "audio.wav"
+
+    async def events() -> AsyncIterator[str]:
+        trace = LatencyTrace()
+
+        try:
+            with trace.stage("stt"):
+                transcription = await stt.transcribe(
+                    audio,
+                    filename=filename,
+                    language_hint=language if language in SUPPORTED_LANGS else None,
+                )
+        except SonicRagError as error:
+            yield f"event: error\ndata: {json.dumps(error.to_dict())}\n\n"
+            return
+
+        answer_language = (
+            language if language in SUPPORTED_LANGS else transcription.language
+        )
+        transcript = {
+            "native": transcription.native_text,
+            "english": transcription.english_text,
+            "detected_language": transcription.detected_language_code,
+            "provider": transcription.provider,
+            "fallback_reason": transcription.fallback_reason,
+        }
+        # Show the user their own words immediately, well before the answer.
+        yield f"event: transcript\ndata: {json.dumps({'transcript': transcript, 'language': answer_language, 'latency': trace.as_dict()})}\n\n"
+
+        with trace.stage("guardrail_input"):
+            verdict = check_input(transcription.english_text)
+        AUDIT_LOG.appendleft(audit_input(verdict, transcription.english_text))
+
+        if not verdict.allowed:
+            payload = {
+                "blocked": True,
+                "stage": "input",
+                "code": verdict.code,
+                "message": verdict.description,
+                "latency": trace.as_dict(),
+            }
+            yield f"event: blocked\ndata: {json.dumps(payload)}\n\n"
+            return
+
+        hits, scores = await _retrieve(verdict.normalized_query, top_k, trace)
+
+        with trace.stage("guardrail_grounding"):
+            grounding = check_grounding(scores)
+        AUDIT_LOG.appendleft(audit_grounding(grounding, verdict.normalized_query))
+
+        meta = {
+            "language": answer_language,
+            "transcript": transcript,
+            "contexts": _serialize_hits(hits, answer_language),
+            "top_score": round(grounding.top_score, 4),
+            "threshold": grounding.threshold,
+            "latency": trace.as_dict(),
+        }
+        yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+
+        if not grounding.allowed:
+            payload = {"answer": grounding.message, "code": grounding.code, "grounded": False}
+            yield f"event: blocked\ndata: {json.dumps(payload)}\n\n"
+            return
+
+        generation = GenerationRequest(
+            query=verdict.normalized_query,
+            contexts=engine.build_contexts(hits),
+            language=answer_language,
+        )
+        try:
+            async for piece in harness.stream(generation):
+                yield f"event: token\ndata: {json.dumps({'t': piece})}\n\n"
+        except SonicRagError as error:
+            yield f"event: error\ndata: {json.dumps(error.to_dict())}\n\n"
+            return
+
+        yield f"event: done\ndata: {json.dumps({'latency': trace.as_dict(), 'grounded': True})}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/audit")

@@ -119,6 +119,40 @@ class TestGroqWhisperProvider:
         await service.aclose()
 
 
+class TestWarmup:
+    """Pre-connecting keeps the TLS handshake out of the first user's latency."""
+
+    @pytest.mark.asyncio
+    async def test_warms_configured_providers(self) -> None:
+        facade = SpeechToText(
+            SarvamSttService(api_key="k", client=sarvam_client()),
+            GroqWhisperService(api_key="g", client=groq_client()),
+        )
+        assert await facade.warmup() == {PROVIDER_SARVAM: True, PROVIDER_GROQ: True}
+        await facade.aclose()
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_provider_is_not_warmed(self) -> None:
+        facade = SpeechToText(
+            SarvamSttService(api_key="", client=sarvam_client()),
+            GroqWhisperService(api_key="g", client=groq_client()),
+        )
+        assert await facade.warmup() == {PROVIDER_SARVAM: False, PROVIDER_GROQ: True}
+        await facade.aclose()
+
+    @pytest.mark.asyncio
+    async def test_unreachable_host_does_not_raise(self) -> None:
+        """A cold connection is a slower first request, never a startup failure."""
+        def dead(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("no route", request=request)
+
+        service = SarvamSttService(
+            api_key="k", client=httpx.AsyncClient(transport=httpx.MockTransport(dead))
+        )
+        assert await service.warmup("https://api.sarvam.ai/speech-to-text") is False
+        await service.aclose()
+
+
 class TestFailover:
     @pytest.mark.asyncio
     async def test_uses_primary_when_it_works(self) -> None:

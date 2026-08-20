@@ -168,6 +168,26 @@ class _HttpSpeechProvider:
         except ValueError as error:
             raise TranscriptionError("Speech-to-text upstream returned a non-JSON body.") from error
 
+    async def warmup(self, url: str) -> bool:
+        """Open a TLS connection before the first real request.
+
+        The first HTTPS call to a host pays DNS resolution plus a full
+        handshake. Doing that at startup instead of during someone's first
+        spoken question removes a one-off spike of a few hundred milliseconds
+        from the number they actually see.
+
+        A HEAD on the endpoint is enough to establish the connection; the
+        status is irrelevant, since the pooled socket is the point.
+        """
+        if not self.configured:
+            return False
+        try:
+            await self._client.head(url, timeout=CONNECT_TIMEOUT_S)
+        except httpx.HTTPError:
+            # A cold connection is a slower first request, never a failure.
+            return False
+        return True
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -364,6 +384,18 @@ class SpeechToText:
         return {
             PROVIDER_SARVAM: self._primary.configured,
             PROVIDER_GROQ: self._fallback.configured,
+        }
+
+    async def warmup(self) -> dict[str, bool]:
+        """Pre-connect both providers concurrently during startup."""
+        primary, fallback = await asyncio.gather(
+            self._primary.warmup(SARVAM_TRANSLATE_URL),
+            self._fallback.warmup(GROQ_TRANSCRIBE_URL),
+            return_exceptions=True,
+        )
+        return {
+            PROVIDER_SARVAM: primary is True,
+            PROVIDER_GROQ: fallback is True,
         }
 
     async def transcribe(

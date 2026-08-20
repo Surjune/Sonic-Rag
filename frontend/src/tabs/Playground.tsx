@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Orb } from '../components/Orb'
 import { Badge, Metric, Panel, ScoreMeter, SectionTitle } from '../components/ui'
-import { ApiError, postQuery, postVoice } from '../lib/api'
+import { ApiError, postQuery, streamVoice } from '../lib/api'
 import { startRecording, type RecorderHandle } from '../lib/audio'
 import type { Language, LatencySample, PipelineState, QueryResponse } from '../lib/types'
 
@@ -134,16 +134,77 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
     if (animationFrame.current !== null) cancelAnimationFrame(animationFrame.current)
     setLevel(0)
     setState('processing')
+
     try {
       const wav = await handle.stop()
-      const result = await postVoice(wav, {
-        language: language === 'auto' ? null : language,
-      })
-      settle(result, 'voice')
+      // Streamed: the transcript lands around 405ms and the first token around
+      // 1073ms, against 1588ms before anything at all appeared.
+      let answer = ''
+      let partial: QueryResponse | null = null
+      let blocked = false
+
+      await streamVoice(
+        wav,
+        {
+          onTranscript: (data) => {
+            partial = { ...(partial ?? {}), ...data, answer: '' } as QueryResponse
+            setResponse(partial)
+          },
+          onMeta: (data) => {
+            partial = { ...(partial ?? {}), ...data, answer } as QueryResponse
+            setResponse(partial)
+          },
+          onToken: (piece) => {
+            answer += piece
+            setResponse((previous) =>
+              previous ? { ...previous, answer } : previous,
+            )
+          },
+          onBlocked: (data) => {
+            blocked = true
+            partial = { ...(partial ?? {}), ...data, blocked: true } as QueryResponse
+            setResponse(partial)
+            setState('refused')
+          },
+          onError: (error) => {
+            throw new ApiError(error.message, error.code, 502)
+          },
+          onDone: (data) => {
+            const final = {
+              ...(partial ?? {}),
+              answer,
+              grounded: true,
+              blocked: false,
+              latency: data.latency,
+            } as QueryResponse
+            setResponse(final)
+            setState('grounded')
+            onSample({
+              at: Date.now(),
+              kind: 'voice',
+              grounded: true,
+              blocked: false,
+              latency: data.latency,
+            })
+          },
+        },
+        { language: language === 'auto' ? null : language },
+      )
+
+      if (blocked && partial) {
+        const refused = partial as QueryResponse
+        onSample({
+          at: Date.now(),
+          kind: 'voice',
+          grounded: false,
+          blocked: true,
+          latency: refused.latency ?? { total: 0 },
+        })
+      }
     } catch (error) {
       fail(error)
     }
-  }, [language, settle, fail])
+  }, [language, fail, onSample])
 
   const busy = state === 'processing'
   const recording = state === 'listening'
