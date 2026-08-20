@@ -25,15 +25,6 @@ const EVENT = {
   dates: 'Goa, India · 28–31 Oct 2026',
 }
 
-/** Repeating marquee copy, in the event's own voice. */
-const RIBBON = [
-  'BUILDERS OF THE HOUSE',
-  'HH GOA 2026',
-  '#FRAMEINGOA',
-  'TASK 2 · VOICE-ENABLED INDIC RAG',
-  'LIGHTNING LOGICS',
-  'MAKE SOMETHING WORTH SHARING',
-]
 
 type TabId = (typeof TABS)[number]['id']
 
@@ -64,22 +55,6 @@ export default function App() {
 
   return (
     <div className="grid-backdrop flex h-full flex-col">
-      {/* Scrolling ribbon, as on the event poster. Two identical tracks so the
-          loop closes without a seam. */}
-      <div className="ribbon shrink-0 border-b border-black/20">
-        <div className="ribbon-track">
-          {[0, 1].map((copy) => (
-            <div key={copy} className="flex shrink-0 items-center" aria-hidden={copy === 1}>
-              {RIBBON.map((text) => (
-                <span key={text}>
-                  {text} <span className="opacity-70">★</span>
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-
       <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-3">
         <div className="flex items-center gap-3">
           <AudioLines style={{ color: 'var(--color-goa-yellow)' }} size={22} />

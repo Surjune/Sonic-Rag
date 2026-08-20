@@ -35,14 +35,6 @@ body {
 }
 
 /*
- * Goa sunset backdrop.
- *
- * Pure CSS on purpose: the WebGL canvas already competes with the retrieval
- * backend for CPU on a demo laptop, so the atmosphere must not cost draw calls.
- * Radial glows sit low in the frame like a sun near the horizon, with a teal
- * sea tone opposite them, over a horizon band and a faint grid for structure.
- */
-/*
  * The event's beach illustration as the actual backdrop.
  *
  * The artwork carries the sun, rays, palms, shack and sea, so the CSS sun that
@@ -119,14 +111,8 @@ body {
   z-index: 1;
 }
 
-/*
- * Panels read as smoked glass over the sunset rather than opaque slabs.
- *
- * Slightly more transparent than before so the warmth shows through, with a
- * stronger blur so text stays legible over the brightest part of the gradient.
- */
-/* More opaque than before: these now sit over a bright illustration rather than
-   a flat gradient, and small mono text needs a settled ground to read against. */
+/* Deliberately opaque: these sit over a bright illustration, and small mono
+   text needs a settled ground to read against. */
 .panel {
   background: color-mix(in srgb, var(--color-panel) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-edge) 70%, transparent);
@@ -159,51 +145,6 @@ body {
   color: var(--color-goa-yellow);
 }
 
-/*
- * The poster's pink marquee ribbon.
- *
- * Two copies of the same track scroll side by side; when the first has moved
- * exactly its own width the second sits where it started, so the loop has no
- * visible seam. Translating a transform keeps it on the compositor rather than
- * triggering layout on every frame.
- */
-.ribbon {
-  background: var(--color-goa-pink);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.ribbon-track {
-  display: inline-flex;
-  will-change: transform;
-  animation: ribbon-scroll 38s linear infinite;
-}
-
-.ribbon-track > span {
-  padding-inline: 1.25rem;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: var(--color-goa-yellow);
-}
-
-@keyframes ribbon-scroll {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-/* Respect reduced-motion: a permanently scrolling banner is a real problem for
-   some readers, so it simply stops rather than slowing down. */
-@media (prefers-reduced-motion: reduce) {
-  .ribbon-track {
-    animation: none;
-  }
-}
 
 ::-webkit-scrollbar {
   width: 8px;
