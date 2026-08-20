@@ -86,29 +86,48 @@ their own language; only the vector space is English.
 
 ## Measured latency
 
-100 real corpus queries, sequential, on a **loaded 2-core i3** — a weak machine,
-so treat these as a floor rather than a best case.
+100 real corpus queries, sequential, on a **10-core i5-13450HX / 16GB / RTX
+5050** — a much stronger machine than the original 2-core i3 floor, so these
+numbers show what the pipeline does on hardware that isn't the bottleneck.
 
 | Stage | P50 | P70 | P95 | P100 |
 | --- | ---: | ---: | ---: | ---: |
-| Input guardrail | 0.04ms | 0.04ms | 0.05ms | 0.06ms |
-| Embedding | 116.29ms | 124.43ms | 150.94ms | 208.48ms |
-| **FAISS search** | **0.41ms** | 0.44ms | 0.54ms | 0.78ms |
-| Grounding check | 0.02ms | 0.02ms | 0.03ms | 0.04ms |
-| **Retrieval total** | **116.96ms** | **124.94ms** | **151.46ms** | 209.31ms |
+| Input guardrail | 0.03ms | 0.03ms | 0.04ms | 0.06ms |
+| Embedding | 54.07ms | 55.94ms | 60.31ms | 69.09ms |
+| **FAISS search** | **0.22ms** | 0.24ms | 0.29ms | 0.39ms |
+| Grounding check | 0.01ms | 0.01ms | 0.01ms | 0.02ms |
+| **Retrieval total** | **54.41ms** | **56.34ms** | **60.66ms** | 69.46ms |
 
-- **Injection blocked: 0.05ms** — refused before any embedding or network call
-- **Ungrounded refusal: 104ms** — no model call, no tokens spent
-- **Full generation: 917ms P50**, TTFT 659ms
+- **Injection blocked: 0.02ms P50** — refused before any embedding or network call
+- **Ungrounded refusal: 56.97ms P50** — no model call, no tokens spent
+- **Typed Hindi retrieval: 346.84ms P50** (adds the Sarvam text-translation hop, 294.65ms P50 of that)
+- **Typed Tamil retrieval: 298.71ms P50** (translation hop 242.94ms P50)
 
-**Honest reading:** the retrieval pipeline meets sub-200ms through P95. It does
-**not** meet it once a network-bound model call is involved, and no free-tier
-configuration changes that — TTFT is dominated by the round trip, and variance
-between repeated calls to the same model (814–1337ms) exceeds the difference
-between models.
+**Full pipeline, including generation** (n=17 of 20 attempted — see note below):
 
-Reproduce with `python benchmark.py --queries 100` (close the browser first —
-the WebGL canvas competes for CPU with the process being measured).
+| Stage | P50 | P70 | P90 | P95 | P100 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Embedding | 55.55ms | 57.64ms | 61.58ms | 63.74ms | 63.74ms |
+| FAISS search | 0.23ms | 0.23ms | 0.24ms | 0.56ms | 0.56ms |
+| **Groq TTFT** | **579.88ms** | 659.87ms | 975.05ms | 995.68ms | 995.68ms |
+| Groq total generation | 641.59ms | 677.32ms | 1010.88ms | 1021.17ms | 1021.17ms |
+| **Full pipeline total** | **700.73ms** | **726.09ms** | **1061.36ms** | **1077.06ms** | 1077.06ms |
+
+**Honest reading:** retrieval alone comfortably clears sub-200ms, even at
+P100. The full pipeline does not, at any percentile, once a network-bound
+model call is involved — and no tech-stack change fixes that from this side:
+Groq's own TTFT (580-1000ms across percentiles here) is the round trip to
+their infrastructure, not local compute. 3 of the 20 generation attempts in
+this run failed with `UPSTREAM_ERROR: Generation upstream returned no
+content` — `openai/gpt-oss-20b` is a reasoning model, and the working theory
+is that it can spend the full `MAX_OUTPUT_TOKENS` budget on internal
+reasoning before emitting visible answer content for a harder query, leaving
+nothing in the response. Flagged here rather than quietly excluded from the
+sample.
+
+Reproduce with `python benchmark.py --queries 100 --generation-samples 20`
+(close the browser first — the WebGL canvas competes for CPU with the process
+being measured).
 
 ---
 
@@ -232,8 +251,14 @@ frontend/
 
 ## Known limitations
 
-- **Sub-200ms is not met end-to-end** with generation, only for retrieval. See
-  the latency section.
+- **Sub-200ms is not met end-to-end** with generation, only for retrieval —
+  700ms P50 / 1077ms P100 full pipeline vs. 54ms P50 / 69ms P100 retrieval
+  alone. See the latency section.
+- **`openai/gpt-oss-20b` occasionally returns no content** (3 of 20 in the
+  latest generation run) — a reasoning model spending its output-token budget
+  on internal reasoning before ever emitting a visible answer. Not yet
+  mitigated; a larger `MAX_OUTPUT_TOKENS` or a non-reasoning model would be
+  the next things to try.
 - **Hindi and Tamil injection patterns are a narrow starter set** and want a
   native-speaker review before being relied on.
 - **The chunking comparison ran on 25 queries.** Differences of ~0.1 are within
