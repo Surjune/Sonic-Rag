@@ -31,6 +31,9 @@ from app.config import (
     GROQ_API_KEY,
     GROQ_API_URL,
     GROQ_MODEL,
+    LLM_PROVIDER,
+    OLLAMA_API_URL,
+    OLLAMA_MODEL,
     MAX_CONTEXT_CHUNKS,
     MAX_OUTPUT_TOKENS,
     MAX_RETRIES,
@@ -189,15 +192,27 @@ class GroqHarness:
         api_key: str | None = None,
         *,
         client: httpx.AsyncClient | None = None,
-        model: str = GROQ_MODEL,
+        model: str | None = None,
         tools: ToolRegistry | None = None,
+        provider: str | None = None,
     ) -> None:
+        # Groq is the default and the deployment target. Ollama is opt-in and
+        # exists to measure what removing the network hop actually buys; it
+        # speaks the same OpenAI-compatible protocol, so only the endpoint,
+        # the model name and the auth requirement differ.
+        self._provider = (provider or LLM_PROVIDER).strip().lower()
+        self._local = self._provider == "ollama"
+        self._api_url = OLLAMA_API_URL if self._local else GROQ_API_URL
+
         self._keys = (
             KeyRing.of("GROQ_API_KEY", api_key)
             if api_key is not None
             else KeyRing.from_env("GROQ_API_KEY")
         )
-        self._model = model
+        if model is not None:
+            self._model = model
+        else:
+            self._model = OLLAMA_MODEL if self._local else GROQ_MODEL
         self._tools = tools or ToolRegistry()
         self._breaker = CircuitBreaker()
         # A shared pool with keep-alive: the saved TLS handshake on a warm
@@ -212,8 +227,18 @@ class GroqHarness:
         return self._breaker.state
 
     @property
+    def provider(self) -> str:
+        return self._provider
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
     def configured(self) -> bool:
-        return self._keys.configured
+        # A local provider needs no key, so credentials are not what decides
+        # whether it is usable.
+        return True if self._local else self._keys.configured
 
     @property
     def key_label(self) -> str:
@@ -227,6 +252,10 @@ class GroqHarness:
         return True
 
     def _headers(self) -> dict[str, str]:
+        # A local server has no credential to present, and demanding one would
+        # make the comparison impossible to run.
+        if self._local:
+            return {"Content-Type": "application/json"}
         if not self._keys.configured:
             raise MissingCredentialsError(
                 "GROQ_API_KEY is not configured.",
@@ -270,6 +299,17 @@ class GroqHarness:
         during startup instead of during a user's first question removes a large
         one-off spike from the measured latency.
         """
+        if self._local:
+            # No TLS handshake or DNS to amortize against localhost, but the
+            # model still has to be loaded into VRAM, and paying that on the
+            # first user's question would misattribute a one-off cost to
+            # steady-state latency. Ollama's /api/tags is enough to wake it.
+            try:
+                base = self._api_url.split("/v1/")[0]
+                await self._client.get(f"{base}/api/tags", timeout=CONNECT_TIMEOUT_S)
+                return True
+            except httpx.HTTPError:
+                return False
         if not self._keys.configured:
             return False
         try:
@@ -290,7 +330,7 @@ class GroqHarness:
 
         try:
             async with self._client.stream(
-                "POST", GROQ_API_URL, headers=headers, json=payload
+                "POST", self._api_url, headers=headers, json=payload
             ) as response:
                 if response.status_code >= 400:
                     body = (await response.aread()).decode("utf-8", "replace")
@@ -407,7 +447,7 @@ class GroqHarness:
             payload["tool_choice"] = "auto"
 
         try:
-            response = await self._client.post(GROQ_API_URL, headers=self._headers(), json=payload)
+            response = await self._client.post(self._api_url, headers=self._headers(), json=payload)
         except httpx.TimeoutException as error:
             self._breaker.record_failure()
             raise UpstreamTimeoutError(

@@ -157,6 +157,24 @@ MAX_CONTEXT_CHUNKS = 4
 # how much budget reasoning itself consumes.
 MAX_OUTPUT_TOKENS = 1024
 
+# --- local LLM (Ollama), opt-in ------------------------------------------------
+#
+# Groq remains the default and the deployment target: it is network-bound but
+# runs on LPU hardware no laptop matches, and it needs no local GPU. This block
+# exists to answer a specific question -- what does removing the network hop
+# actually buy? -- by pointing the same harness at a model running on this
+# machine. Ollama serves an OpenAI-compatible /v1/chat/completions, so the same
+# request shape works against both and the comparison is apples to apples.
+#
+# Set LLM_PROVIDER=ollama to switch. Nothing about the Groq path changes.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1/chat/completions")
+# 3B class, quantized: fits an 8GB laptop GPU with room for the KV cache, and
+# is the honest comparison point for a free-tier local setup. A larger model
+# would win on quality and lose the latency argument this is meant to test.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+
 # --- speech to text (Sarvam) ------------------------------------------------
 
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")

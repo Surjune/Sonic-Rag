@@ -262,7 +262,10 @@ async def health() -> dict[str, Any]:
         "index_size": engine.size,
         "index_meta": engine.meta,
         "groq_configured": harness.configured,
-        "groq_model": GROQ_MODEL,
+        # Which generation backend is actually serving, not which one is
+        # configured in the file -- a silent provider switch is a debugging trap.
+        "llm_provider": harness.provider,
+        "groq_model": harness.model,
         # How many keys are loaded and which is active. Labels only, never
         # the keys themselves.
         "groq_key": harness.key_label,
