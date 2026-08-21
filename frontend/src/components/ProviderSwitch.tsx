@@ -35,6 +35,13 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
   const [progress, setProgress] = useState<PullProgress | null>(null)
   const [pulling, setPulling] = useState(false)
   const [pullError, setPullError] = useState<string | null>(null)
+  const [seen, setSeen] = useState(() => {
+    try {
+      return localStorage.getItem('sonic-rag.providerSeen') === 'yes'
+    } catch {
+      return false
+    }
+  })
 
   if (!providers) return null
 
@@ -43,6 +50,21 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
   // Ollama answered but does not have the model: the one case the interface
   // can resolve itself, without asking anyone to open a terminal.
   const canPull = !localReady && (local.detail ?? '').includes('not pulled')
+
+  // Worth pointing at only while it is true: a faster backend is sitting
+  // there unused, or is one download away, and nobody has looked yet. Once
+  // local is chosen or the explainer has been read, the hint retires rather
+  // than becoming decoration people learn to ignore.
+  const unnoticed = !seen && value !== 'ollama' && (localReady || canPull)
+
+  const markSeen = () => {
+    setSeen(true)
+    try {
+      localStorage.setItem('sonic-rag.providerSeen', 'yes')
+    } catch {
+      // Storage being unavailable only means the hint shows again later.
+    }
+  }
 
   const startPull = async () => {
     setPulling(true)
@@ -102,21 +124,70 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
         })}
       </div>
 
+      {/*
+        The reason to care, on the control itself. A switch labelled only
+        "groq / local" says nothing about why anyone would move it, and the
+        thing worth knowing is the number. Shown only while local is unused,
+        so it reads as an offer rather than a permanent ornament.
+      */}
+      {unnoticed && localReady && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange('ollama')
+            markSeen()
+          }}
+          className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
+        >
+          5× faster
+        </button>
+      )}
+      {unnoticed && !localReady && canPull && (
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true)
+            markSeen()
+          }}
+          className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
+        >
+          get 5× faster
+        </button>
+      )}
+
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        title="What is the difference?"
-        className={`rounded-md border p-1 transition ${
-          localReady
-            ? 'border-white/10 text-emerald-100/40 hover:text-emerald-100/80'
-            : 'border-emerald-300/30 text-emerald-200/70 hover:text-emerald-200'
+        onClick={() => {
+          setOpen((o) => !o)
+          markSeen()
+        }}
+        title="Where is the answer generated?"
+        className={`relative rounded-md border p-1 transition ${
+          unnoticed
+            ? 'border-emerald-300/50 text-emerald-200'
+            : 'border-white/10 text-emerald-100/40 hover:text-emerald-100/80'
         }`}
       >
         <Info size={12} />
+        {/*
+          The switch is easy to miss, and the thing worth noticing is that a
+          five-times-faster backend is sitting there unused. The dot appears
+          only while that is true: once local is selected, or once someone has
+          opened this and read it, there is nothing left to point at.
+        */}
+        {unnoticed && (
+          <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-300" />
+          </span>
+        )}
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 z-50 mt-2 w-[22rem] rounded-lg border border-white/15 bg-[#04170f] p-3 text-left shadow-xl">
+        <div className="absolute top-full right-0 z-50 mt-2 w-[23rem] rounded-xl border border-white/20 bg-[#031109] p-4 text-left shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)]">
+          <p className="mb-3 font-mono text-[10px] tracking-[0.2em] text-emerald-100/45 uppercase">
+            Where the answer is generated
+          </p>
           {/* The trade, stated plainly, because neither option is simply better. */}
           <div className="mb-3 space-y-2">
             <div className="flex gap-2">
