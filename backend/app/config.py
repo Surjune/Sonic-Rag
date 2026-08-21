@@ -175,6 +175,21 @@ OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1/chat/com
 # would win on quality and lose the latency argument this is meant to test.
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
+# How long Ollama keeps the weights in VRAM after the last request.
+#
+# Its default is five minutes, after which the next question pays a full reload
+# -- measured at 8155ms cold against 22ms warm, which is the difference between
+# the local model being the fastest option available and the slowest. Rare
+# enough to look like a glitch and slow enough to ruin a demo.
+#
+# Two things make this awkward. The OpenAI-compatible /v1 endpoint ignores
+# keep_alive entirely, so it can only be set through Ollama's native API; and
+# every /v1 request resets the timer to the five-minute default, so pinning
+# once at startup is undone by the first question. The harness therefore
+# re-pins after each local generation, which keeps the model resident for as
+# long as somebody is actually using it and lets it go afterwards.
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+
 # --- speech to text (Sarvam) ------------------------------------------------
 
 SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "")

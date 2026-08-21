@@ -213,6 +213,16 @@ Neither figure is a sum of the stage timings. Adding stages up would lose the
 gaps between them and double-count anything concurrent, so both are taken as
 wall-clock from the start of the request.
 
+**Keeping the local model resident is not optional.** Ollama evicts weights
+from VRAM five minutes after the last request, and the reload costs 8155ms
+against 22ms warm — occasional enough to look like a random glitch and slow
+enough to ruin a demo. Two things make it awkward to fix: the
+OpenAI-compatible `/v1` endpoint ignores `keep_alive` entirely, and every `/v1`
+request resets the timer to the five-minute default, so pinning once at startup
+is undone by the first question. The harness pins through Ollama's native
+endpoint and re-pins after each local generation, which keeps the model
+resident while somebody is using it and lets it go 30 minutes after they stop.
+
 Reproduce with `python compare_providers.py` (needs Ollama running and
 `ollama pull llama3.2:3b`).
 

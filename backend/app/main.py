@@ -405,6 +405,10 @@ async def query(request: QueryRequest) -> Any:
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
     trace.mark("first_output", llm_started + result.ttft_ms / 1000)
+    # Renew the local model's residency. Each generation resets Ollama's timer
+    # to its five-minute default, so without this the next question after a
+    # pause pays a full reload.
+    backend.schedule_pin()
 
     return {
         "answer": result.text,
@@ -511,6 +515,7 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         # unusable. Checking its actual reply, not just assuming success once
         # streaming completes, is what makes "grounded" here true rather than
         # a default.
+        backend.schedule_pin()
         model_refused = is_ungrounded_reply("".join(pieces))
         yield (
             "event: done\ndata: "

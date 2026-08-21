@@ -33,6 +33,7 @@ from app.config import (
     GROQ_MODEL,
     LLM_PROVIDER,
     OLLAMA_API_URL,
+    OLLAMA_KEEP_ALIVE,
     OLLAMA_MODEL,
     MAX_CONTEXT_CHUNKS,
     MAX_OUTPUT_TOKENS,
@@ -215,6 +216,8 @@ class GroqHarness:
             self._model = OLLAMA_MODEL if self._local else GROQ_MODEL
         self._tools = tools or ToolRegistry()
         self._breaker = CircuitBreaker()
+        # Live re-pin tasks, held so the loop cannot collect them mid-flight.
+        self._pending: set[asyncio.Task[bool]] = set()
         # A shared pool with keep-alive: the saved TLS handshake on a warm
         # connection outweighs the entire local compute budget.
         self._client = client or httpx.AsyncClient(
@@ -266,6 +269,51 @@ class GroqHarness:
             "Content-Type": "application/json",
         }
 
+    async def pin(self) -> bool:
+        """Load the local model into VRAM and keep it there.
+
+        Ollama evicts after five minutes idle, and the reload costs 8155ms
+        against 22ms warm -- rare enough to look like a glitch and slow enough
+        to ruin a demo. An empty prompt to the native endpoint loads the model
+        without generating anything, and only that endpoint honours
+        keep_alive: the OpenAI-compatible one used for generation ignores it
+        and resets the timer to five minutes on every request.
+
+        Fails quietly. Ollama not running is the ordinary case for anyone who
+        has not installed it, and is not a problem worth surfacing.
+        """
+        if not self._local:
+            return False
+        try:
+            base = self._api_url.split("/v1/")[0]
+            response = await self._client.post(
+                f"{base}/api/generate",
+                json={"model": self._model, "keep_alive": OLLAMA_KEEP_ALIVE},
+                timeout=REQUEST_TIMEOUT_S,
+            )
+            return response.status_code < 400
+        except httpx.HTTPError:
+            return False
+
+    def schedule_pin(self) -> None:
+        """Re-pin after a generation, without making the user wait for it.
+
+        Each /v1 request resets Ollama's timer to its five-minute default, so
+        the pin has to be renewed or it is undone by the very requests it
+        exists to speed up. Fire and forget: this must never delay a response
+        or fail one.
+        """
+        if not self._local:
+            return
+        try:
+            task = asyncio.create_task(self.pin())
+        except RuntimeError:
+            return  # no running loop, e.g. under a synchronous test
+        # Hold a reference until it finishes, or the loop may garbage-collect
+        # the task mid-flight, and swallow the result either way.
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
     def _reasoning_effort(self) -> str | None:
         """Cap reasoning depth for GPT-OSS models.
 
@@ -300,16 +348,10 @@ class GroqHarness:
         one-off spike from the measured latency.
         """
         if self._local:
-            # No TLS handshake or DNS to amortize against localhost, but the
-            # model still has to be loaded into VRAM, and paying that on the
-            # first user's question would misattribute a one-off cost to
-            # steady-state latency. Ollama's /api/tags is enough to wake it.
-            try:
-                base = self._api_url.split("/v1/")[0]
-                await self._client.get(f"{base}/api/tags", timeout=CONNECT_TIMEOUT_S)
-                return True
-            except httpx.HTTPError:
-                return False
+            # There is no TLS handshake to amortize against localhost, but the
+            # weights still have to reach VRAM, and paying that on the first
+            # user's question charges a one-off cost to steady-state latency.
+            return await self.pin()
         if not self._keys.configured:
             return False
         try:
