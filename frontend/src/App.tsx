@@ -58,7 +58,7 @@ export default function App() {
     return () => clearInterval(timer)
   }, [])
 
-  useEffect(() => {
+  const refreshProviders = useCallback(() => {
     getProviders()
       .then((result) => {
         setProviders(result)
@@ -70,6 +70,8 @@ export default function App() {
       })
       .catch(() => setProviders(null))
   }, [])
+
+  useEffect(() => refreshProviders(), [refreshProviders])
 
   useEffect(() => {
     try {
@@ -129,7 +131,12 @@ export default function App() {
               <Badge tone={health.index_loaded ? 'emerald' : 'rose'}>
                 {health.index_loaded ? `${health.index_size.toLocaleString()} vectors` : 'no index'}
               </Badge>
-              <ProviderSwitch providers={providers} value={provider} onChange={setProvider} />
+              <ProviderSwitch
+                providers={providers}
+                value={provider}
+                onChange={setProvider}
+                onRefresh={refreshProviders}
+              />
               <Badge tone={health.circuit === 'CLOSED' ? 'emerald' : 'rose'}>
                 circuit {health.circuit}
               </Badge>

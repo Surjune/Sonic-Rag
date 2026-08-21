@@ -19,12 +19,14 @@ from collections import deque
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Deque
 
+import httpx
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import (
+    CONNECT_TIMEOUT_S,
     CORS_ORIGINS,
     OLLAMA_API_URL,
     OLLAMA_MODEL,
@@ -1016,6 +1018,70 @@ async def providers() -> dict[str, Any]:
             ),
         },
     }
+
+
+@app.post("/api/providers/pull")
+async def pull_local_model() -> StreamingResponse:
+    """Download the local model, streaming progress so the wait is visible.
+
+    A 2GB download behind a button with no feedback looks like a hang, and the
+    honest thing is to show the bytes. Ollama's native pull API reports total
+    and completed per layer, which is enough for a real progress bar rather
+    than a spinner.
+
+    This can only work when Ollama is reachable from the server, which means
+    the two are on the same machine. On a hosted deployment they are not: the
+    backend's localhost is the server, not the visitor's laptop, and the
+    interface says so rather than offering a button that cannot work.
+    """
+
+    async def events() -> AsyncIterator[str]:
+        base = OLLAMA_API_URL.split("/v1/")[0]
+        try:
+            async with local_harness._client.stream(
+                "POST",
+                f"{base}/api/pull",
+                json={"model": OLLAMA_MODEL, "stream": True},
+                timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT_S),
+            ) as response:
+                if response.status_code >= 400:
+                    body = (await response.aread()).decode("utf-8", "replace")[:200]
+                    yield f"event: error\ndata: {json.dumps({'message': body})}\n\n"
+                    return
+
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        frame = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if frame.get("error"):
+                        yield f"event: error\ndata: {json.dumps({'message': frame['error']})}\n\n"
+                        return
+                    total = int(frame.get("total") or 0)
+                    completed = int(frame.get("completed") or 0)
+                    payload = {
+                        "status": frame.get("status", ""),
+                        "total": total,
+                        "completed": completed,
+                        "percent": round(100 * completed / total, 1) if total else None,
+                    }
+                    yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+        except httpx.HTTPError as error:
+            yield f"event: error\ndata: {json.dumps({'message': str(error)})}\n\n"
+            return
+
+        # Pin it immediately: a model that was just downloaded should be ready
+        # to answer, not evicted five minutes later having never been used.
+        await local_harness.pin()
+        yield f"event: done\ndata: {json.dumps({'model': OLLAMA_MODEL})}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/stats")

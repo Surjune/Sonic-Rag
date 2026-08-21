@@ -258,3 +258,56 @@ export function audioUrlFromBase64(base64: string): string {
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
 }
+
+export interface PullProgress {
+  status: string
+  total: number
+  completed: number
+  percent: number | null
+}
+
+/**
+ * Download the local model, reporting progress as it goes.
+ *
+ * Two gigabytes behind a button with no feedback is indistinguishable from a
+ * hang, so the bytes are streamed back rather than hidden behind a spinner.
+ */
+export async function pullLocalModel(handlers: {
+  onProgress?: (progress: PullProgress) => void
+  onDone?: () => void
+  onError?: (message: string) => void
+}): Promise<void> {
+  const response = await fetch(`${BASE}/api/providers/pull`, { method: 'POST' })
+  if (!response.body) throw new ApiError('No response stream', 'NO_STREAM', response.status)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+
+    for (const frame of frames) {
+      let event = 'message'
+      let data = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+      if (!data) continue
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(data)
+      } catch {
+        continue
+      }
+      if (event === 'progress') handlers.onProgress?.(parsed as PullProgress)
+      else if (event === 'done') handlers.onDone?.()
+      else if (event === 'error') handlers.onError?.((parsed as { message: string }).message)
+    }
+  }
+}
