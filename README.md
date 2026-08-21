@@ -141,6 +141,48 @@ failures in the run above are a different thing entirely — quota exhaustion
 from repeated benchmarking, where the harness rotated to the backup key and
 then opened the circuit, exactly as designed.
 
+### Where the 200ms actually goes: Groq vs a local model
+
+The sub-200ms target is missed because of the network, not the pipeline. To
+measure that rather than assert it, the harness can be pointed at a model
+running on this machine — `LLM_PROVIDER=ollama`, same prompts, same retrieved
+context, same streaming parse. Groq stays the default and the deployment
+target; this is a measurement, not a migration.
+
+| Generation stage only | Groq `gpt-oss-20b` | Local `llama3.2:3b` |
+| --- | ---: | ---: |
+| **TTFT P50** | 438ms | **82ms** |
+| TTFT P100 | 537ms | **96ms** |
+| Total P50 | 534ms | 497ms |
+| Total P100 | **715ms** | 808ms |
+
+**Time to first token is 5.3x faster locally; total time is a wash.** That
+split is the whole story: TTFT is dominated by the round trip to Groq, which
+localhost does not pay, while Groq's LPU then decodes fast enough to claw the
+difference back over a full answer.
+
+End-to-end, the local model is the only configuration measured here that meets
+the target — and only for first token:
+
+| End-to-end to first token | P50 | P70 | P90 | P100 |
+| --- | ---: | ---: | ---: | ---: |
+| guardrail + embed + FAISS + TTFT | **177.6ms** | **186.4ms** | 214.5ms | 219.0ms |
+
+**Sub-200ms is met at P50 and P70, and missed from P90 up.** Three things stop
+this from being the answer to the requirement rather than a data point:
+
+- It is **time to first readable token, not the finished answer** — full
+  completion is 369ms P50 locally. "Through to final output" is still not met
+  by any configuration measured.
+- It **needs a local GPU**. The deployment target's free tier has none, so
+  running this configuration there would be slower than Groq, not faster.
+- It is a **3B model against a 20B one**. Answer quality held up on this
+  corpus — 0 refusals and 0 errors across 8 identical prompts, with comparable
+  groundedness — but that is a narrow test, not a quality claim.
+
+Reproduce with `python compare_providers.py` (needs Ollama running and
+`ollama pull llama3.2:3b`).
+
 Reproduce with `python benchmark.py --queries 100 --generation-samples 20`
 (close the browser first — the WebGL canvas competes for CPU with the process
 being measured).
