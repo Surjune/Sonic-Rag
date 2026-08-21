@@ -275,6 +275,7 @@ empty comparison until the command has been run once.
 | Pre-retrieval | Prompt injection, role hijack, prompt extraction, delimiter injection | 0.04ms |
 | Pre-retrieval | Harmful instructions, PII (Luhn-validated cards, Aadhaar, phone, email) | 0.04ms |
 | Pre-retrieval | Greetings and small talk, answered directly | 0.1ms |
+| Pre-retrieval | Silence mistaken for speech by the transcriber | 0.02ms |
 | Post-retrieval | Cosine similarity below threshold | 0.02ms |
 | Post-generation | The model itself declining for lack of usable context | — |
 
@@ -289,6 +290,22 @@ Greetings, thanks, farewells and "what can you do" are now answered before any
 embedding, in the user's language, in **0.1ms and zero tokens**. The patterns
 are anchored to the whole string, so *"hello, what is inflation"* is still a
 question and still goes to retrieval — only a bare greeting short-circuits.
+
+**Speech models do not return nothing for nothing.** Recording without
+speaking produced `"."` natively and `"you"` in English — reproduced by
+uploading three seconds of digital silence, which Sarvam transcribes as
+`"you"` — and that embedded, matched a software licence passage defining the
+word at **0.7400**, cleared the threshold, and earned a fluent explanation of
+what "you" means in an agreement nobody asked about. Every layer behaved
+correctly and the user got an invented exchange, which is the exact failure
+this project treats as worse than a refusal.
+
+Caught at both ends now. The browser checks the recording contains a sample
+above the silence threshold before uploading, so nothing is spent on an empty
+one; the server independently rejects transcripts that are punctuation-only or
+a known artifact, since a quiet-but-not-silent room still reaches it. Only
+single tokens are treated as artifacts — *"you"* alone is silence, *"who are
+you"* is a question.
 
 **The threshold was calibrated twice, not assumed.** The original 0.38
 admitted 100% of off-topic queries — `bge-small-en-v1.5` compresses cosine

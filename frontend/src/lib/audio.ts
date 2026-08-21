@@ -20,8 +20,13 @@ export interface RecorderHandle {
   getFrequencies: () => Uint8Array
   /** Overall loudness in [0,1], for driving displacement. */
   getLevel: () => number
-  /** Stop capture and return the encoded WAV. */
-  stop: () => Promise<Blob>
+  /**
+   * Stop capture and return the encoded WAV, with whether it contains speech.
+   *
+   * The caller needs both: an empty recording still encodes to a valid WAV,
+   * and uploading it produces a confident transcript of nothing.
+   */
+  stop: () => Promise<{ wav: Blob; hasSpeech: boolean }>
   /** Abort without producing audio. */
   cancel: () => void
 }
@@ -35,8 +40,34 @@ export interface RecorderHandle {
  */
 const SILENCE_THRESHOLD = 0.01
 
+/** Loud samples required before a recording counts as containing speech. */
+const MIN_SPEECH_SAMPLES = 1600 // 100ms at 16kHz
+
 /** Speech kept either side of the detected range, so onsets survive. */
 const SILENCE_PADDING_SAMPLES = 1600 // 100ms at 16kHz
+
+/**
+ * Whether a recording contains anything worth transcribing.
+ *
+ * Speech models do not return nothing for nothing: given silence they emit a
+ * confident short string, and "you" then embeds, matches a passage defining
+ * the word, and earns a fluent answer to a question nobody asked. Catching it
+ * here costs one pass over the buffer and saves the upload entirely.
+ *
+ * The bar is deliberately low -- a sample above the same threshold the trimmer
+ * uses, for at least 100ms. This is not voice detection, only a check that the
+ * microphone heard something.
+ */
+export function hasSpeech(samples: Float32Array): boolean {
+  let loud = 0
+  for (let i = 0; i < samples.length; i += 1) {
+    if (Math.abs(samples[i]) >= SILENCE_THRESHOLD) {
+      loud += 1
+      if (loud >= MIN_SPEECH_SAMPLES) return true
+    }
+  }
+  return false
+}
 
 /**
  * Drop leading and trailing silence.
@@ -53,8 +84,9 @@ export function trimSilence(samples: Float32Array): Float32Array {
   while (start < samples.length && Math.abs(samples[start]) < SILENCE_THRESHOLD) start += 1
   while (end > start && Math.abs(samples[end]) < SILENCE_THRESHOLD) end -= 1
 
-  // Entirely silent: return it untouched rather than an empty buffer, so the
-  // server reports "no speech recognized" instead of rejecting an empty upload.
+  // Entirely silent: hand it back untouched. hasSpeech() is what decides
+  // whether to upload; returning an empty buffer here would only turn a clear
+  // "I heard nothing" into a malformed-audio error.
   if (start >= end) return samples
 
   const from = Math.max(0, start - SILENCE_PADDING_SAMPLES)
@@ -174,7 +206,10 @@ export async function startRecording(): Promise<RecorderHandle> {
         merged.set(chunk, offset)
         offset += chunk.length
       }
-      return encodeWav(trimSilence(merged), sampleRate)
+      return {
+        wav: encodeWav(trimSilence(merged), sampleRate),
+        hasSpeech: hasSpeech(merged),
+      }
     },
     cancel: teardown,
   }

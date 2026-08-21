@@ -14,6 +14,7 @@ from app.guardrails import (
     check_grounding,
     check_input,
     detect_small_talk,
+    is_probably_silence,
     detect_pii,
     normalize_query,
 )
@@ -357,3 +358,45 @@ class TestSmallTalk:
     def test_indic_script_greetings(self) -> None:
         assert detect_small_talk("नमस्ते") is not None
         assert detect_small_talk("வணக்கம்") is not None
+
+
+class TestSilenceDetection:
+    """Speech models return a confident short string for no speech.
+
+    Observed here: recording nothing produced "." natively and "you" in
+    English, which embedded, matched a software licence passage defining the
+    word at 0.7400, cleared the threshold, and earned a fluent explanation of
+    what "you" means in an agreement nobody asked about. Every layer behaved
+    correctly and the user got an invented exchange.
+    """
+
+    def test_empty_and_punctuation_only(self) -> None:
+        for text in ("", "   ", ".", "...", "?", "!?", ". . ."):
+            assert is_probably_silence(text), repr(text)
+
+    def test_known_speech_model_artifacts(self) -> None:
+        for text in ("you", "You.", "thank you", "Thanks for watching!", "um", "uh"):
+            assert is_probably_silence(text), repr(text)
+
+    def test_real_questions_are_never_silence(self) -> None:
+        for text in (
+            "what is a corporation",
+            "who are you",
+            "tell me about obama",
+            "what does you mean in a licence",
+            "thank you for explaining, now what is inflation",
+        ):
+            assert not is_probably_silence(text), repr(text)
+
+    def test_only_single_tokens_are_artifacts(self) -> None:
+        """"you" alone is silence; "who are you" is a question."""
+        assert is_probably_silence("you")
+        assert not is_probably_silence("who are you")
+        assert not is_probably_silence("you are wrong about corporations")
+
+    def test_indic_text_is_not_silence(self) -> None:
+        assert not is_probably_silence("निगम क्या है")
+        assert not is_probably_silence("நிறுவனம் என்றால் என்ன")
+
+    def test_devanagari_danda_alone_is_silence(self) -> None:
+        assert is_probably_silence("।")

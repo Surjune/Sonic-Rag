@@ -423,6 +423,62 @@ _SMALL_TALK_REPLIES: dict[str, dict[str, str]] = {
 }
 
 
+# --- silence -----------------------------------------------------------------
+#
+# Speech models do not return nothing for nothing. Given silence or room tone
+# they emit a confident short string -- "." and "you" are the two seen here,
+# and "Thank you." / "Thanks for watching!" are documented Whisper artifacts
+# from its training data. None of that is a question.
+#
+# Left alone it is worse than a wrong answer, because every downstream layer
+# behaves correctly: "you" embeds, matches a software licence passage defining
+# the word at 0.74, clears the threshold, and the model dutifully explains what
+# "you" means in an agreement nobody asked about. A user who spoke nothing gets
+# a fluent, grounded, entirely fabricated exchange.
+_ARTIFACTS = frozenset(
+    {
+        "you", "thank you", "thanks", "thanks for watching", "thank you for watching",
+        "bye", "uh", "um", "hmm", "mm", "ah", "oh", "so", "the", "a", "i",
+        "okay", "ok", "yeah", "yes", "no", "please subscribe", "subscribe",
+    }
+)
+
+def _has_no_content(text: str) -> bool:
+    """True when nothing in the string is a letter or a digit.
+
+    Uses str.isalnum rather than a hand-written character range. The first
+    attempt here matched the Devanagari block wholesale and so counted the
+    danda -- U+0964, the full stop of Hindi and the character Sarvam ends its
+    transcriptions with -- as content. Unicode already classifies it as
+    punctuation, and every other script gets the same treatment for free.
+    """
+    return not any(character.isalnum() for character in text)
+
+
+def is_probably_silence(text: str) -> bool:
+    """Whether a transcript is what a speech model returns for no speech.
+
+    Deliberately narrow. This runs only on speech input, where the cost of a
+    false positive is asking someone to repeat themselves, and the cost of a
+    false negative is an invented answer to a question nobody asked. Only
+    single tokens are matched -- "you" alone is an artifact, "who are you" is
+    a question -- so nothing a person would actually say is caught.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if _has_no_content(stripped):
+        return True
+    return stripped.rstrip(".!?,।॥").casefold() in _ARTIFACTS
+
+
+NO_SPEECH_MESSAGE: dict[str, str] = {
+    "en": "I didn't catch any speech. Hold the button, speak, then release.",
+    "hi": "कोई आवाज़ सुनाई नहीं दी। बटन दबाकर बोलिए, फिर छोड़िए।",
+    "ta": "பேச்சு எதுவும் கேட்கவில்லை. பொத்தானை அழுத்திப் பேசி விடுங்கள்.",
+}
+
+
 def detect_small_talk(text: str, language: str = "en") -> tuple[str, str] | None:
     """Return (kind, reply) when the input is a greeting rather than a question.
 

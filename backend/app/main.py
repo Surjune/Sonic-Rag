@@ -42,6 +42,8 @@ from app.guardrails import (
     check_grounding,
     check_input,
     detect_small_talk,
+    is_probably_silence,
+    NO_SPEECH_MESSAGE,
 )
 from app.chunk_eval import load_cached
 from app.chunkers import STRATEGY_ORDER, get_chunker
@@ -564,6 +566,29 @@ async def voice(
             },
         )
 
+    # Nothing was said. Every layer below this would behave correctly on the
+    # artifact a speech model returns for silence, and correctly produce an
+    # answer to a question nobody asked.
+    if is_probably_silence(transcription.english_text):
+        return {
+            "answer": NO_SPEECH_MESSAGE.get(answer_language, NO_SPEECH_MESSAGE["en"]),
+            "grounded": False,
+            "blocked": True,
+            "stage": "input",
+            "code": "NO_SPEECH",
+            "generated": False,
+            "language": answer_language,
+            "transcript": {
+                "native": transcription.native_text,
+                "english": transcription.english_text,
+                "detected_language": transcription.detected_language_code,
+                "provider": transcription.provider,
+                "fallback_reason": transcription.fallback_reason,
+            },
+            "contexts": [],
+            "latency": trace.as_dict(),
+        }
+
     # A spoken "hello" deserves the same treatment as a typed one.
     small_talk = detect_small_talk(verdict.normalized_query, answer_language)
     if small_talk is not None:
@@ -700,6 +725,19 @@ async def voice_stream(
                 "stage": "input",
                 "code": verdict.code,
                 "message": verdict.description,
+                "latency": trace.as_dict(),
+            }
+            yield f"event: blocked\ndata: {json.dumps(payload)}\n\n"
+            return
+
+        if is_probably_silence(transcription.english_text):
+            payload = {
+                "blocked": True,
+                "stage": "input",
+                "code": "NO_SPEECH",
+                "message": NO_SPEECH_MESSAGE.get(answer_language, NO_SPEECH_MESSAGE["en"]),
+                "answer": NO_SPEECH_MESSAGE.get(answer_language, NO_SPEECH_MESSAGE["en"]),
+                "grounded": False,
                 "latency": trace.as_dict(),
             }
             yield f"event: blocked\ndata: {json.dumps(payload)}\n\n"

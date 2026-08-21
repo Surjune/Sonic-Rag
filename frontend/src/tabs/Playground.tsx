@@ -209,7 +209,16 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
     setState('processing')
 
     try {
-      const wav = await handle.stop()
+      const { wav, hasSpeech } = await handle.stop()
+
+      // Nothing was said. Uploading it anyway would get back a confident
+      // transcript of silence -- "you" or "." -- which retrieves a passage and
+      // earns a fluent answer to a question that was never asked.
+      if (!hasSpeech) {
+        setState('idle')
+        setErrorMessage("I didn't hear anything. Hold the button, speak, then release.")
+        return
+      }
       // Streamed: the transcript lands around 405ms and the first token around
       // 1073ms, against 1588ms before anything at all appeared.
       let answer = ''
