@@ -35,19 +35,21 @@ backend/data/
 
 # Index artifacts.
 #
-# The FAISS index and its metadata ARE committed, deliberately. Rebuilding them
-# needs the 911MB dataset plus ~35 minutes of CPU embedding, which would make a
-# fresh clone unusable for anyone evaluating the project. At 22MB combined they
-# sit far inside GitHub's limits, and they are a build output that must be
-# shipped to the host regardless.
+# NOT committed. At 250 source rows they were 22MB combined and shipping them
+# inside the repository was the right call. At 10,000 rows they are 336MB
+# (FAISS) + 445MB (metadata), and GitHub hard-rejects any file over 100MB, so
+# that is no longer an option regardless of preference.
 #
-# Everything else here stays ignored: benchmark and comparison results are
-# regenerated per machine and would only create noisy diffs.
+# They are published as GitHub Release assets instead: 2GB per file is allowed
+# there, the bytes do not count against repository size, and public-repo
+# downloads are not bandwidth-metered the way Git LFS is. setup.ps1 and
+# setup.sh fetch them automatically, so a fresh clone is still runnable
+# without a 5.4-hour rebuild.
+#
+# Benchmark and comparison results stay ignored too: they are regenerated per
+# machine and would only create noisy diffs.
 artifacts/*
-!backend/artifacts/
 backend/artifacts/*
-!backend/artifacts/vector_index.faiss
-!backend/artifacts/metadata.pkl
 
 # --- Logs ---
 *.log

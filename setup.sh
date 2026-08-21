@@ -11,6 +11,11 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Where the prebuilt index is published. Pinned to a tag rather than
+# 'latest' so a clone always gets artifacts matching its code.
+INDEX_RELEASE_TAG='index-10k'
+INDEX_RELEASE_URL="https://github.com/Surjune/Sonic-Rag/releases/download/$INDEX_RELEASE_TAG"
+
 step() { printf '\n=== %s ===\n' "$1"; }
 ok()   { printf '  ok   %s\n' "$1"; }
 warn() { printf '  warn %s\n' "$1"; }
@@ -51,12 +56,36 @@ else
 fi
 
 step 'Index artifacts'
-if [ -f "$root/backend/artifacts/vector_index.faiss" ]; then
+# The index is a build output, not source. It is 781MB at 10,000 rows, far
+# past GitHub's 100MB per-file limit, so it ships as Release assets and is
+# fetched here. Rebuilding locally instead costs a 5.4-hour embedding pass,
+# which is not a reasonable thing to ask of someone evaluating the project.
+artifact_dir="$root/backend/artifacts"
+mkdir -p "$artifact_dir"
+
+for asset in vector_index.faiss metadata.pkl; do
+  target="$artifact_dir/$asset"
+  if [ -f "$target" ]; then
+    ok "$asset already present"
+    continue
+  fi
+  printf '  downloading %s from the %s release...\n' "$asset" "$INDEX_RELEASE_TAG"
+  # -L follows the redirect to the CDN; --fail turns an HTML error page into a
+  # non-zero exit instead of a corrupt file that only fails at load time.
+  if curl -fL --progress-bar -o "$target" "$INDEX_RELEASE_URL/$asset"; then
+    ok "downloaded $asset"
+  else
+    rm -f "$target"
+    warn "could not download $asset; fetch it manually from $INDEX_RELEASE_URL"
+  fi
+done
+
+if [ -f "$artifact_dir/vector_index.faiss" ]; then
   vectors="$("$venv_python" -c "import faiss,sys; print(faiss.read_index(sys.argv[1]).ntotal)" \
-    "$root/backend/artifacts/vector_index.faiss")"
-  ok "prebuilt index present ($vectors vectors) - no rebuild needed"
+    "$artifact_dir/vector_index.faiss")"
+  ok "index ready ($vectors vectors) - no rebuild needed"
 else
-  warn 'index missing. Run: python test_dataset_connection.py && python -m app.indexer --rows 250'
+  warn 'index missing. Rebuild: python test_dataset_connection.py && python -m app.indexer --rows 10000'
 fi
 
 printf '\nSetup complete.\n\nNext:\n'
