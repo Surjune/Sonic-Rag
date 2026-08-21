@@ -12,10 +12,10 @@ import { Playground } from './tabs/Playground'
 
 /** Numbered like the Task 1 site's nav, so both submissions read as one identity. */
 const TABS = [
-  { id: 'playground', num: '01', label: 'Live Playground', icon: Mic },
-  { id: 'analytics', num: '02', label: 'Latency Analytics', icon: Activity },
-  { id: 'chunks', num: '03', label: 'Chunking Explorer', icon: Layers },
-  { id: 'guardrails', num: '04', label: 'Guardrails & Audit', icon: ShieldCheck },
+  { id: 'playground', num: '01', label: 'Live Playground', short: 'Ask', icon: Mic },
+  { id: 'analytics', num: '02', label: 'Latency Analytics', short: 'Latency', icon: Activity },
+  { id: 'chunks', num: '03', label: 'Chunking Explorer', short: 'Chunks', icon: Layers },
+  { id: 'guardrails', num: '04', label: 'Guardrails & Audit', short: 'Guards', icon: ShieldCheck },
 ] as const
 
 const EVENT = {
@@ -150,7 +150,7 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="flex items-center gap-1 overflow-x-auto border-b border-white/10 px-3 py-2">
+      <nav className="hidden items-center gap-1 overflow-x-auto border-b border-white/10 px-3 py-2 md:flex">
         {TABS.map(({ id, num, label, icon: Icon }) => {
           const active = tab === id
           return (
@@ -194,7 +194,11 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="min-h-0 flex-1 p-3 md:p-4">
+      <main
+        className={`min-h-0 flex-1 p-3 md:p-4 md:pb-4 ${
+          tab === 'playground' ? 'pb-[10.5rem]' : 'pb-24'
+        }`}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={tab}
@@ -221,6 +225,42 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/*
+        Bottom navigation, phones only.
+        A horizontal strip of four tabs at the top of a 360px screen either
+        overflows or shrinks past legibility, and it sits at the far end of the
+        reach of a thumb. Down here each tab is a quarter of the width with a
+        real tap target, which is where a phone user expects to change section.
+
+        pb-[env(safe-area-inset-bottom)] keeps it clear of the home indicator on
+        an iPhone, where the last 34px belong to the system.
+      */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#04170f]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+        {TABS.map(({ id, short, icon: Icon }) => {
+          const active = tab === id
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 transition"
+              style={{ color: active ? 'var(--color-goa-yellow)' : 'rgba(209,250,229,0.45)' }}
+            >
+              <Icon size={18} />
+              <span className="font-mono text-[10px] tracking-wider uppercase">{short}</span>
+              {active && (
+                <motion.span
+                  layoutId="tab-highlight-mobile"
+                  className="absolute inset-x-3 top-0 h-0.5 rounded-full"
+                  style={{ background: 'var(--color-goa-yellow)' }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                />
+              )}
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }

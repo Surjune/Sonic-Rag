@@ -352,7 +352,7 @@ export function Playground({
       <div className="flex min-h-0 flex-col gap-3 md:gap-4">
         {/* panel-glass so the beach illustration reads as the orb's setting
             rather than being hidden behind an opaque surface. */}
-        <Panel className="panel-glass relative h-[52vh] min-h-[300px] overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
+        <Panel className="panel-glass relative h-[30vh] max-h-[280px] min-h-[190px] overflow-hidden lg:h-auto lg:max-h-none lg:min-h-0 lg:flex-1">
           {/*
             DPR is capped and adaptive. On an integrated GPU a 2x device pixel
             ratio quadruples fragment work, and during a local demo the browser
@@ -412,11 +412,11 @@ export function Playground({
 
           {/* Latency HUD */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
-            <div className="panel grid grid-cols-3 gap-x-3 gap-y-2 rounded-lg px-3 py-2.5 sm:grid-cols-6 md:px-4 md:py-3">
-              <Metric label="STT" value={latency?.stt} />
-              <Metric label="Embed" value={latency?.embed} />
-              <Metric label="FAISS" value={latency?.faiss} budgetMs={5} />
-              <Metric label="Model TTFT" value={latency?.llm_ttft} />
+            <div className="panel grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg px-3 py-2 sm:grid-cols-6 md:px-4 md:py-3">
+              <Metric className="hidden sm:block" label="STT" value={latency?.stt} />
+              <Metric className="hidden sm:block" label="Embed" value={latency?.embed} />
+              <Metric className="hidden sm:block" label="FAISS" value={latency?.faiss} budgetMs={5} />
+              <Metric className="hidden sm:block" label="Model TTFT" value={latency?.llm_ttft} />
               {/*
                 The latency figure: request in, first token out. Everything
                 after it is the answer still arriving, which the reader is
@@ -434,21 +434,28 @@ export function Playground({
           </div>
         </Panel>
 
-        <Panel className="p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Order matters only while wrapped: field first, controls beneath. */}
+        <Panel className="fixed inset-x-0 bottom-0 z-30 rounded-none border-x-0 border-b-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom)+3.5rem)] lg:static lg:rounded-xl lg:border lg:p-3 lg:pb-3">
+          {/*
+            One row on a phone, deliberately. The word labels and a wrapped
+            second row turned this into a 170px block -- a quarter of the
+            screen permanently occupied by a control bar. Icons carry the two
+            buttons at that width, and the labels return at sm where there is
+            room.
+          */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={recording ? finishRecording : beginRecording}
               disabled={busy}
-              className={`order-2 flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition sm:order-none sm:flex-none ${
+              aria-label={recording ? 'Stop recording' : 'Ask by voice'}
+              className={`flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition sm:px-4 ${
                 recording
                   ? 'bg-fuchsia-600 text-white hover:bg-fuchsia-500'
                   : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-40'
               }`}
             >
-              {recording ? <Square size={15} /> : <Mic size={15} />}
-              {recording ? 'Stop' : 'Speak'}
+              {recording ? <Square size={16} /> : <Mic size={16} />}
+              <span className="hidden sm:inline">{recording ? 'Stop' : 'Speak'}</span>
             </button>
 
             <input
@@ -462,13 +469,16 @@ export function Playground({
               }}
               disabled={busy || recording}
               placeholder="Ask in English, हिन्दी, or தமிழ்…"
-              className="order-1 w-full min-w-0 flex-1 rounded-lg border border-slate-700 sm:order-none sm:w-auto bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40"
+              /* 16px on mobile: iOS Safari zooms the whole page in on focus
+                 for anything smaller, and never zooms back out. */
+              className="h-11 w-full min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
             />
 
             <select
               value={language}
               onChange={(event) => setLanguage(event.target.value as Language | 'auto')}
-              className="order-3 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-2.5 text-sm text-slate-300 focus:border-cyan-500/60 focus:outline-none sm:order-none"
+              aria-label="Answer language"
+              className="h-11 shrink-0 rounded-lg border border-slate-700 bg-slate-900/60 px-1.5 text-sm text-slate-300 focus:border-cyan-500/60 focus:outline-none sm:px-2"
             >
               {LANGUAGES.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -481,10 +491,11 @@ export function Playground({
               type="button"
               onClick={() => void submitText()}
               disabled={busy || recording || !text.trim()}
-              className="order-4 flex flex-1 items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-30 sm:order-none sm:flex-none"
+              aria-label="Ask"
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-cyan-500 px-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-30 sm:px-4"
             >
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-              Ask
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              <span className="hidden sm:inline">Ask</span>
             </button>
           </div>
         </Panel>

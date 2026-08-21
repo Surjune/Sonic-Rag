@@ -69,14 +69,33 @@ body {
  * beach and palms sit along the lower edge at any window height, with the sun
  * remaining visible above them.
  */
+/*
+ * No illustration on a phone.
+ *
+ * The artwork is a wide landscape scene. `cover` on a portrait screen crops it
+ * to a narrow vertical slice, which shows sand and a palm trunk rather than
+ * the composition, and reads as a texture nobody chose. `background-attachment:
+ * fixed` also forces a repaint on every scroll frame in mobile Safari, which is
+ * exactly the wrong cost on the device with the least to spend.
+ *
+ * Below md the backdrop is the gradient alone -- the scrim below already
+ * carries the palette, so the result is the same colour world without the
+ * cropped scene or the scroll cost. The illustration returns at md, where
+ * there is room for it to be the picture it was drawn as.
+ */
 .grid-backdrop {
   position: relative;
   background-color: var(--color-void);
-  background-image: url('/goa-backdrop.png');
-  background-size: cover;
-  background-position: center bottom;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
+}
+
+@media (min-width: 768px) {
+  .grid-backdrop {
+    background-image: url('/goa-backdrop.png');
+    background-size: cover;
+    background-position: center bottom;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
 }
 
 /*

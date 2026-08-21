@@ -29,18 +29,21 @@ export function Metric({
   unit = 'ms',
   budgetMs,
   mono = true,
+  className = '',
 }: {
   label: string
   value: number | undefined
   unit?: string
   budgetMs?: number
   mono?: boolean
+  /** Lets a caller hide a stage on small screens without wrapping it. */
+  className?: string
 }) {
   const missing = value === undefined
   const over = budgetMs !== undefined && !missing && value > budgetMs
   const tone = missing ? 'text-slate-600' : over ? 'text-rose-400' : 'text-emerald-300'
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className={`flex flex-col gap-0.5 ${className}`}>
       <span className="text-[10px] uppercase tracking-widest text-slate-500">{label}</span>
       <span className={`${tone} ${mono ? 'font-mono' : ''} text-sm tabular-nums`}>
         {missing ? '—' : `${value < 1 ? value.toFixed(2) : value.toFixed(0)}${unit}`}
