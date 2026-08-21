@@ -330,6 +330,112 @@ def check_input(query: str) -> InputVerdict:
     )
 
 
+# --- small talk ------------------------------------------------------------
+#
+# "hi" is not a question, but it is the first thing almost anyone types. Sent
+# down the retrieval path it embeds, matches a passage about the Japanese kana
+# は at 0.7036 -- above the grounding threshold -- and reaches the model, which
+# spends a second and real tokens correctly concluding the passage does not
+# answer it. The user's first impression is then a red refusal to a greeting.
+#
+# Answering here instead costs a regex match. It is not a guardrail in the
+# safety sense: nothing is being blocked, the input simply has a better answer
+# than retrieval can give.
+#
+# Every pattern is anchored to the whole string. "hello" is small talk;
+# "hello, what is inflation" is a question with a greeting attached, and must
+# still go to retrieval.
+_SMALL_TALK: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "greeting",
+        re.compile(
+            r"^(?:hi|hii+|hey+|hello+|yo|namaste|namaskar|vanakkam|hola"
+            r"|good\s*(?:morning|afternoon|evening|day)"
+            r"|नमस्ते|नमस्कार|हाय|हैलो|வணக்கம்|ஹாய்)"
+            r"[\s!.?,]*$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "howareyou",
+        re.compile(
+            r"^(?:how\s*(?:are|r)\s*(?:you|u)(?:\s*doing)?|what'?s\s*up|sup"
+            r"|कैसे\s*हो|क्या\s*हाल\s*है|எப்படி\s*இருக்கிறீர்கள்)"
+            r"[\s!.?,]*$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "thanks",
+        re.compile(
+            r"^(?:thanks?|thank\s*(?:you|u)|thx|ty|dhanyavaad|shukriya"
+            r"|धन्यवाद|शुक्रिया|நன்றி)[\s!.?,]*$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "farewell",
+        re.compile(
+            r"^(?:bye+|goodbye|see\s*(?:you|ya)|alvida|अलविदा|பிரியாவிடை)"
+            r"[\s!.?,]*$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "capability",
+        re.compile(
+            r"^(?:who\s*(?:are|r)\s*(?:you|u)|what\s*(?:are|r)\s*(?:you|u)"
+            r"|what\s*can\s*(?:you|u)\s*do|help|what\s*is\s*this"
+            r"|तुम\s*कौन\s*हो|நீங்கள்\s*யார்)[\s!.?,]*$",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+# Replies carry a nudge toward what the system can actually do, because a bare
+# "hello" back leaves the user exactly as stuck as the refusal did.
+_SMALL_TALK_REPLIES: dict[str, dict[str, str]] = {
+    "greeting": {
+        "en": "Hello. Ask me a question and I'll answer from the indexed passages — try \"what is a corporation\" or \"what causes diabetes\".",
+        "hi": "नमस्ते। कोई सवाल पूछिए, मैं अनुक्रमित अंशों से उत्तर दूंगा — जैसे \"निगम क्या है\"।",
+        "ta": "வணக்கம். ஒரு கேள்வி கேளுங்கள், அட்டவணைப்படுத்தப்பட்ட பத்திகளிலிருந்து பதிலளிக்கிறேன் — எடுத்துக்காட்டாக \"நிறுவனம் என்றால் என்ன\".",
+    },
+    "howareyou": {
+        "en": "Running fine. Ask me something from the corpus and I'll answer from retrieved passages.",
+        "hi": "सब ठीक है। कोई सवाल पूछिए, मैं अनुक्रमित अंशों से उत्तर दूंगा।",
+        "ta": "நன்றாக இயங்குகிறேன். ஒரு கேள்வி கேளுங்கள், பத்திகளிலிருந்து பதிலளிக்கிறேன்.",
+    },
+    "thanks": {
+        "en": "You're welcome. Ask another question whenever you like.",
+        "hi": "आपका स्वागत है। जब चाहें दूसरा सवाल पूछिए।",
+        "ta": "வரவேற்கிறேன். வேறு கேள்வி இருந்தால் கேளுங்கள்.",
+    },
+    "farewell": {
+        "en": "Goodbye.",
+        "hi": "अलविदा।",
+        "ta": "பிரியாவிடை.",
+    },
+    "capability": {
+        "en": "I answer questions from an indexed corpus of passages, by voice or text, in English, Hindi or Tamil. I only answer from what was retrieved — if nothing relevant is found, I say so rather than guess.",
+        "hi": "मैं अनुक्रमित अंशों से सवालों के जवाब देता हूँ — आवाज़ या टेक्स्ट से, अंग्रेज़ी, हिंदी या तमिल में। जो नहीं मिला, उसका अनुमान नहीं लगाता।",
+        "ta": "அட்டவணைப்படுத்தப்பட்ட பத்திகளிலிருந்து கேள்விகளுக்கு பதிலளிக்கிறேன் — குரல் அல்லது உரை மூலம், ஆங்கிலம், இந்தி அல்லது தமிழில். கிடைக்காததை ஊகிக்க மாட்டேன்.",
+    },
+}
+
+
+def detect_small_talk(text: str, language: str = "en") -> tuple[str, str] | None:
+    """Return (kind, reply) when the input is a greeting rather than a question.
+
+    Runs on the normalized query, so the same invisible-character and unicode
+    folding that protects the injection rules applies here too.
+    """
+    for kind, pattern in _SMALL_TALK:
+        if pattern.match(text):
+            replies = _SMALL_TALK_REPLIES[kind]
+            return kind, replies.get(language) or replies["en"]
+    return None
+
+
 def check_grounding(
     scores: Sequence[float], threshold: float = SIMILARITY_THRESHOLD
 ) -> GroundingVerdict:

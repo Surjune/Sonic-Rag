@@ -13,6 +13,7 @@ from app.guardrails import (
     audit_input,
     check_grounding,
     check_input,
+    detect_small_talk,
     detect_pii,
     normalize_query,
 )
@@ -291,3 +292,68 @@ class TestAudit:
         assert entry.stage == "grounding"
         assert entry.allowed is False
         assert "threshold=0.38" in entry.detail
+
+
+class TestSmallTalk:
+    """Greetings are answered directly instead of being sent to retrieval.
+
+    Sent down the pipeline, "hi" matches a passage about the Japanese kana は
+    above the grounding threshold and reaches the model, which spends a full
+    round trip correctly refusing it. The user sees a red refusal to a
+    greeting, which reads as a broken system rather than a careful one.
+    """
+
+    def test_greetings_are_recognized(self) -> None:
+        for text in ("hi", "hello", "Hey!", "namaste", "good morning", "HELLO"):
+            assert detect_small_talk(text) is not None, text
+
+    def test_reply_is_not_empty_and_points_somewhere(self) -> None:
+        result = detect_small_talk("hi")
+        assert result is not None
+        kind, reply = result
+        assert kind == "greeting"
+        assert reply.strip()
+
+    def test_greeting_with_a_real_question_still_goes_to_retrieval(self) -> None:
+        """The whole point of anchoring the patterns.
+
+        "hello, what is inflation" is a question wearing a greeting, and
+        answering it with a canned hello would lose the actual query.
+        """
+        for text in (
+            "hello, what is inflation",
+            "hi what is a corporation",
+            "thanks, now explain photosynthesis",
+        ):
+            assert detect_small_talk(text) is None, text
+
+    def test_real_questions_are_never_small_talk(self) -> None:
+        for text in (
+            "what is a corporation",
+            "how do vaccines work",
+            "who is obama",
+            "what causes diabetes",
+        ):
+            assert detect_small_talk(text) is None, text
+
+    def test_thanks_and_farewell_and_capability(self) -> None:
+        assert detect_small_talk("thanks")[0] == "thanks"
+        assert detect_small_talk("bye")[0] == "farewell"
+        assert detect_small_talk("what can you do")[0] == "capability"
+        assert detect_small_talk("how are you")[0] == "howareyou"
+
+    def test_reply_follows_the_answer_language(self) -> None:
+        _, english = detect_small_talk("hi", "en")
+        _, hindi = detect_small_talk("hi", "hi")
+        _, tamil = detect_small_talk("hi", "ta")
+        assert english != hindi != tamil
+        assert any("ऀ" <= c <= "ॿ" for c in hindi), "expected Devanagari"
+        assert any("஀" <= c <= "௿" for c in tamil), "expected Tamil script"
+
+    def test_unknown_language_falls_back_to_english(self) -> None:
+        _, reply = detect_small_talk("hi", "fr")
+        assert reply == detect_small_talk("hi", "en")[1]
+
+    def test_indic_script_greetings(self) -> None:
+        assert detect_small_talk("नमस्ते") is not None
+        assert detect_small_talk("வணக்கம்") is not None

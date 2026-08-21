@@ -39,6 +39,7 @@ from app.guardrails import (
     audit_input,
     check_grounding,
     check_input,
+    detect_small_talk,
 )
 from app.chunk_eval import load_cached
 from app.chunkers import STRATEGY_ORDER, get_chunker
@@ -247,6 +248,31 @@ async def _prepare(
     detected = detect_script(verdict.normalized_query)
     answer_language = language if language in SUPPORTED_LANGS else detected
 
+    # A greeting is not a question, and sending it down the retrieval path
+    # produces a confident-looking refusal to "hi" after a full model round
+    # trip. Answered here it costs a regex match, no translation, no embedding
+    # and no tokens. Not a block: nothing is wrong with the input, it simply
+    # has a better answer than retrieval can give.
+    small_talk = detect_small_talk(verdict.normalized_query, answer_language)
+    if small_talk is not None:
+        kind, reply = small_talk
+        return JSONResponse(
+            status_code=200,
+            content={
+                "answer": reply,
+                # Grounded and unblocked on purpose: the interface should show
+                # this as an ordinary answer, not as a refusal or an error.
+                "grounded": True,
+                "blocked": False,
+                "generated": False,
+                "small_talk": kind,
+                "language": answer_language,
+                "query": {"raw": verdict.normalized_query, "english": verdict.normalized_query},
+                "contexts": [],
+                "latency": trace.as_dict(),
+            },
+        )
+
     with trace.stage("translate"):
         translation = await translator.to_english(verdict.normalized_query, detected)
 
@@ -378,6 +404,14 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         prepared = await _prepare(request.query, request.language, trace)
         if isinstance(prepared, JSONResponse):
             body = json.loads(bytes(prepared.body).decode())
+            # Small talk is an answer, not a refusal, so it is streamed like
+            # one. Emitting it as `blocked` would paint a greeting red.
+            if body.get("small_talk"):
+                yield f"event: meta\ndata: {json.dumps(body)}\n\n"
+                yield f"event: token\ndata: {json.dumps({'t': body['answer']})}\n\n"
+                done = {"latency": body["latency"], "grounded": True, "model_refused": False}
+                yield f"event: done\ndata: {json.dumps(done)}\n\n"
+                return
             yield f"event: blocked\ndata: {json.dumps(body)}\n\n"
             return
         english_query, display_query, answer_language = prepared
@@ -482,6 +516,28 @@ async def voice(
                 "latency": trace.as_dict(),
             },
         )
+
+    # A spoken "hello" deserves the same treatment as a typed one.
+    small_talk = detect_small_talk(verdict.normalized_query, answer_language)
+    if small_talk is not None:
+        kind, reply = small_talk
+        return {
+            "answer": reply,
+            "grounded": True,
+            "blocked": False,
+            "generated": False,
+            "small_talk": kind,
+            "language": answer_language,
+            "transcript": {
+                "native": transcription.native_text,
+                "english": transcription.english_text,
+                "detected_language": transcription.detected_language_code,
+                "provider": transcription.provider,
+                "fallback_reason": transcription.fallback_reason,
+            },
+            "contexts": [],
+            "latency": trace.as_dict(),
+        }
 
     hits, scores = await _retrieve(verdict.normalized_query, top_k, trace)
 
@@ -598,6 +654,22 @@ async def voice_stream(
                 "latency": trace.as_dict(),
             }
             yield f"event: blocked\ndata: {json.dumps(payload)}\n\n"
+            return
+
+        small_talk = detect_small_talk(verdict.normalized_query, answer_language)
+        if small_talk is not None:
+            kind, reply = small_talk
+            meta = {
+                "language": answer_language,
+                "transcript": transcript,
+                "contexts": [],
+                "small_talk": kind,
+                "latency": trace.as_dict(),
+            }
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+            yield f"event: token\ndata: {json.dumps({'t': reply})}\n\n"
+            done = {"latency": trace.as_dict(), "grounded": True, "model_refused": False}
+            yield f"event: done\ndata: {json.dumps(done)}\n\n"
             return
 
         hits, scores = await _retrieve(verdict.normalized_query, top_k, trace)

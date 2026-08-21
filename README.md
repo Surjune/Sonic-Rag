@@ -241,8 +241,21 @@ empty comparison until the command has been run once.
 | --- | --- | ---: |
 | Pre-retrieval | Prompt injection, role hijack, prompt extraction, delimiter injection | 0.04ms |
 | Pre-retrieval | Harmful instructions, PII (Luhn-validated cards, Aadhaar, phone, email) | 0.04ms |
+| Pre-retrieval | Greetings and small talk, answered directly | 0.1ms |
 | Post-retrieval | Cosine similarity below threshold | 0.02ms |
 | Post-generation | The model itself declining for lack of usable context | — |
+
+**"hi" is not a question, and treating it as one looked like a bug.** Sent
+down the retrieval path it embeds, matches a passage about the Japanese kana
+は at 0.7036 — above the threshold — and reaches the model, which spends 1.1
+seconds and real tokens correctly concluding the passage does not answer it.
+The user's first input gets a red refusal. It was behaving exactly as
+designed and the design was wrong.
+
+Greetings, thanks, farewells and "what can you do" are now answered before any
+embedding, in the user's language, in **0.1ms and zero tokens**. The patterns
+are anchored to the whole string, so *"hello, what is inflation"* is still a
+question and still goes to retrieval — only a bare greeting short-circuits.
 
 **The threshold was calibrated twice, not assumed.** The original 0.38
 admitted 100% of off-topic queries — `bge-small-en-v1.5` compresses cosine
