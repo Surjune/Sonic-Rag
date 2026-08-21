@@ -112,7 +112,9 @@ bottleneck.
 retrieval flat at ~54ms. Embedding is a fixed-cost forward pass that does not
 care how large the index is, and HNSW search is logarithmic in it, so neither
 scales the way intuition suggests. What grows instead is startup and memory:
-781MB of artifacts and ~1.06GB resident.
+781MB of artifacts, **4.6s cold start** (unpickling 445MB of chunk payloads
+plus the ONNX warmup) and **~1.06GB resident**. Those are the figures that
+decide whether a host can run this, not the per-query numbers.
 
 **Full pipeline, including generation** (n=18 of 20; the other two hit a Groq
 free-tier 429 mid-run, not a pipeline fault):
@@ -151,28 +153,43 @@ Four strategies are implemented and **scored against each other**, using the
 corpus's own `is_selected` flag as ground truth rather than any judgement of
 our own.
 
-| Strategy | Chunks | R@1 | R@5 | MRR@5 |
-| --- | ---: | ---: | ---: | ---: |
-| Fixed size | 276 | 0.440 | **0.920** | 0.621 |
-| Fixed + overlap | 276 | 0.400 | 0.880 | 0.593 |
-| **Semantic** | 524 | **0.600** | 0.880 | **0.701** |
-| Hierarchical | 524 | 0.480 | 0.800 | 0.610 |
+Scored over **100 queries across 997 passages** (the earlier published run used
+25 queries, small enough that a 0.1 gap was three queries and inside the
+noise).
 
-Two findings worth stating plainly:
+| Strategy | Chunks | Vector MB | R@1 | R@3 | R@5 | MRR@5 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Fixed size | 1,091 | 1.68 | 0.360 | 0.770 | **0.930** | 0.579 |
+| Fixed + overlap | 1,091 | 1.68 | 0.360 | 0.780 | 0.920 | 0.580 |
+| **Semantic** | 2,100 | 3.23 | **0.470** | 0.730 | 0.880 | **0.626** |
+| Hierarchical | 2,100 | 3.23 | 0.420 | 0.760 | 0.800 | 0.587 |
 
-- **Semantic leads where it matters for RAG** — top-rank precision decides what
-  actually reaches the model. Fixed wins R@5 because larger chunks cover more
-  ground once five results are allowed.
-- **Hierarchical scored worse than plain semantic**, despite injecting parent
-  context. At 25 queries a 0.12 gap is three queries and inside the noise, so it
-  is flagged for a larger run rather than acted on.
+Three findings worth stating plainly:
 
-The two fixed strategies produced identical output because passages measure
-p50 294 and p90 478 characters against a 480-character window, leaving 90%
-unsplit so overlap never engages. Window size is a parameter for this reason.
+- **Semantic leads where it matters for RAG.** It takes R@1 (0.470 vs 0.360)
+  and MRR@5, and top-rank precision is what decides which passage actually
+  reaches the model. It pays for that with double the chunks and double the
+  vector memory — a win, but not a free one.
+- **Fixed wins R@5** (0.930) because larger chunks cover more ground once five
+  results are allowed. Which strategy is "best" depends entirely on how many
+  results you feed the model; at `MAX_CONTEXT_CHUNKS = 4` the top-rank metrics
+  are the ones that count.
+- **Hierarchical still scores below plain semantic** despite injecting parent
+  context — 0.420 vs 0.470 R@1, on identical chunk counts. At 25 queries this
+  was dismissible as noise. At 100 it is five queries out of a hundred and
+  reproduces the earlier direction, so the parent-context injection is not
+  paying for itself here.
 
-Reproduce with `python -m app.chunk_eval --queries 25`, or explore boundaries
-live in the **Chunking Explorer** tab.
+The two fixed strategies are now *nearly* identical rather than exactly so.
+Passages measure p50 294 characters against a 480-character window, so most
+stay unsplit and overlap never engages; only the minority long enough to split
+differ at all (R@3 0.780 vs 0.770, R@5 0.920 vs 0.930). Window size is a
+parameter for exactly this reason.
+
+Reproduce with `python -m app.chunk_eval --queries 100` — the results cache to
+`artifacts/chunk_comparison.json`, which is what the **Chunking Explorer** tab
+reads. That file is a build output and is not committed, so the tab shows an
+empty comparison until the command has been run once.
 
 ---
 
@@ -286,8 +303,10 @@ frontend/
   alone. See the latency section.
 - **Hindi and Tamil injection patterns are a narrow starter set** and want a
   native-speaker review before being relied on.
-- **The chunking comparison ran on 25 queries.** Differences of ~0.1 are within
-  noise; a larger run is needed before acting on the hierarchical result.
+- **The chunking comparison is a build output and is not committed.** The
+  Chunking Explorer's comparison view is empty on a fresh clone until
+  `python -m app.chunk_eval --queries 100` has been run once, which takes about
+  ten minutes of CPU embedding.
 - **The index covers 10,000 source rows** (194,904 vectors) of the 97,941
   available. Coverage is broad but not complete: a question whose supporting
   passage falls in the remaining rows is refused as ungrounded, which looks
