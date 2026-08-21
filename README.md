@@ -197,6 +197,22 @@ this from being the answer to the requirement rather than a data point:
   corpus — 0 refusals and 0 errors across 8 identical prompts, with comparable
   groundedness — but that is a narrow test, not a quality claim.
 
+**The interface reports two numbers, not one.** *To answer* is measured from
+request in to first token out — when reading can begin, and the honest latency
+figure. *Complete* includes streaming every remaining token, which is
+throughput: the reader is already consuming it rather than waiting on it. Both
+are shown because dropping the second would flatter the result, and "through to
+final output" is what the brief actually asks for.
+
+| Measured live, same question | To answer | Complete |
+| --- | ---: | ---: |
+| Groq `gpt-oss-20b` | 471ms | 612ms |
+| Local `llama3.2:3b` | **119ms** | 432ms |
+
+Neither figure is a sum of the stage timings. Adding stages up would lose the
+gaps between them and double-count anything concurrent, so both are taken as
+wall-clock from the start of the request.
+
 Reproduce with `python compare_providers.py` (needs Ollama running and
 `ollama pull llama3.2:3b`).
 

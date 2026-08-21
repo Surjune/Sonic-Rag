@@ -395,12 +395,14 @@ async def query(request: QueryRequest) -> Any:
         query=english_query, contexts=contexts, language=answer_language
     )
     backend = select_harness(request.provider)
+    llm_started = time.perf_counter()
     with trace.stage("llm"):
         result = await (
             backend.generate_with_tools(generation) if request.use_tools
             else backend.generate(generation)
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
+    trace.mark("first_output", llm_started + result.ttft_ms / 1000)
 
     return {
         "answer": result.text,
@@ -498,6 +500,10 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
 
         if first_token_at is not None:
             trace.record("llm_ttft", round((first_token_at - llm_started) * 1000, 3))
+            # When the user could start reading. This is the latency figure;
+            # everything after it is the answer still arriving, which the
+            # reader is already consuming rather than waiting on.
+            trace.mark("first_output", first_token_at)
         # The model is a second, independent judge of groundedness: a passage
         # can clear the cosine threshold while the model still finds it
         # unusable. Checking its actual reply, not just assuming success once
@@ -612,6 +618,7 @@ async def voice(
         }
 
     contexts = engine.build_contexts(hits)
+    llm_started = time.perf_counter()
     with trace.stage("llm"):
         result = await harness.generate(
             GenerationRequest(
@@ -619,6 +626,7 @@ async def voice(
             )
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
+    trace.mark("first_output", llm_started + result.ttft_ms / 1000)
 
     return {
         "answer": result.text,
@@ -755,6 +763,10 @@ async def voice_stream(
 
         if first_token_at is not None:
             trace.record("llm_ttft", round((first_token_at - llm_started) * 1000, 3))
+            # When the user could start reading. This is the latency figure;
+            # everything after it is the answer still arriving, which the
+            # reader is already consuming rather than waiting on.
+            trace.mark("first_output", first_token_at)
         model_refused = is_ungrounded_reply("".join(pieces))
         yield (
             "event: done\ndata: "

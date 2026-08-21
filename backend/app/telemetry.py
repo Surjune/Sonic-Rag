@@ -37,6 +37,18 @@ class LatencyTrace:
         """Record a stage measured elsewhere, e.g. inside a client."""
         self.stages[name] = milliseconds
 
+    def mark(self, name: str, at: float | None = None) -> None:
+        """Record elapsed time from the start of the request to a moment.
+
+        Stages measure how long a step took. A mark measures when something
+        became true for the user, which is a different question: the one that
+        matters most here is when the first token of the answer appeared, since
+        that is when reading can begin. Summing the stages would not give it --
+        gaps between stages would vanish and any concurrency would double-count.
+        """
+        moment = at if at is not None else time.perf_counter()
+        self.stages[name] = (moment - self._started) * 1000
+
     @property
     def total_ms(self) -> float:
         return (time.perf_counter() - self._started) * 1000

@@ -21,6 +21,8 @@ export interface LatencyBreakdown {
   llm?: number
   llm_ttft?: number
   tts?: number
+  /** Request start to first token: when reading could begin. */
+  first_output?: number
   total: number
 }
 
