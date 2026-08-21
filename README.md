@@ -294,4 +294,8 @@ frontend/
   rejects files over 100MB, so they ship as Release assets that the setup
   scripts fetch. Loading them costs ~1.06GB of RAM, which rules out the
   512MB-and-under free tiers on several hosts.
+- **Setup depends on this repository staying public.** Release assets on a
+  private repository return 404 to an unauthenticated download, so making it
+  private again would break `setup.ps1` and `setup.sh` for everyone without
+  any error message pointing at the cause.
 - **No authentication or rate limiting.** The deployment is anonymous.
