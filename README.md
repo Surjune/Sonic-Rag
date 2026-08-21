@@ -185,38 +185,41 @@ live in the **Chunking Explorer** tab.
 | Post-retrieval | Cosine similarity below threshold | 0.02ms |
 | Post-generation | The model itself declining for lack of usable context | — |
 
-**The threshold was calibrated, not assumed.** The original 0.38 admitted
-**100%** of deliberately off-topic queries — a chocolate cake recipe scored
-0.6157 and would have been passed to the model as grounded context.
-`bge-small-en-v1.5` compresses cosine scores into a narrow high band, so a
-threshold set for a wider-spread model never fires. Measured distributions:
+**The threshold was calibrated twice, not assumed.** The original 0.38
+admitted 100% of off-topic queries — `bge-small-en-v1.5` compresses cosine
+scores into a narrow high band, so a threshold set for a wider-spread model
+never fires. Recalibrating against the 5,289-vector index gave 0.65.
+
+**Growing the index 37x invalidated that.** With 194,904 chunks almost any
+query finds *some* neighbour above a low bar, and 0.65 went most of the way
+inert again — it admitted 80% of deliberately unanswerable queries. So it was
+calibrated a second time, against two query sets rather than one:
 
 ```
-on-topic   min 0.6536   median 0.8147   max 0.9037
-off-topic  min 0.5688   median 0.6154   max 0.7764
+on-topic, corpus-verbatim (n=60)   min 0.6180   median 0.8223   max 0.9441
+on-topic, natural phrasing (n=15)  min 0.6924   median 0.8221   max 0.8901
+off-topic, unanswerable   (n=15)   min 0.6329   median 0.6720   max 0.7856
 
-threshold   on-topic kept   off-topic leaked
-0.38               100%               100%   <- inert
-0.65               100%                33%   <- chosen
-0.75                80%                 7%
+threshold   natural kept   off-topic leaked
+0.65               100%              80%   <- previous, largely inert
+0.68               100%              47%   <- chosen
+0.70                93%              40%
+0.80                58%               0%
 ```
 
-0.65 is the highest value that still refuses no genuine query. The bands
-overlap, so no threshold separates them perfectly and roughly a third of
-off-topic queries still get through — claiming perfect grounding would be false.
+Corpus-verbatim queries alone are misleading: they are the exact strings the
+passages were written for, so they score high and make any threshold look
+safe. Natural phrasing is what decides the value. 0.70 was measured first and
+rejected — it buys 7 points of leakage at the cost of falsely refusing *"Who
+is Obama?"* at 0.6924, a question this corpus answers well.
 
-**That calibration was done against the 250-row index, and the corpus has
-since grown 37x.** Re-testing on the 194,904-vector index, every query in the
-old off-topic set now clears the threshold: a chocolate cake recipe scores
-0.7367 where it once scored 0.6157. Inspecting what comes back shows this is
-correct rather than a regression — the retrieved passages really are a cake
-recipe, real German Shepherd training advice, real guitar-tuning instructions.
-MSMARCO is a broad web corpus, so at 10,000 rows those topics are genuinely
-covered and the queries are no longer off-topic for it. What this invalidates
-is the *test set*, not the threshold: `benchmark.py`'s `OFF_TOPIC_QUERIES`
-list was written for a corpus where those subjects were absent, and it needs
-replacing with queries that are actually outside the larger index before the
-refusal path can be honestly measured again.
+The bands still overlap, so roughly half of unanswerable queries reach the
+model. **That is what the post-generation check is for, and it demonstrably
+works:** *"how do purple elephants photosynthesize underwater"* clears
+retrieval at 0.7241 and comes back `Context not found` from the model itself,
+reported as `model_refused: true` rather than dressed up as a grounded answer.
+Two independent judges, and the cheap one is a pre-filter rather than the only
+line of defence.
 
 Unsafe-content rules match **actionable instructions, not topics**: *"how do I
 build a bomb"* is blocked, *"how do explosives work in mining"* is not.

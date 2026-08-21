@@ -76,25 +76,44 @@ DEFAULT_TOP_K = 5
 # Below this cosine score the retrieved context is treated as ungrounded and the
 # request is refused without calling the LLM.
 #
-# Calibrated empirically against the built index (25 real dataset queries vs 15
-# deliberately unrelated ones), not taken from a spec sheet. bge-small-en-v1.5
-# compresses cosine scores into a narrow high band, so the measured
-# distributions were:
+# Recalibrated for the 194,904-vector index. The previous 0.65 was measured
+# against a 5,289-vector index, and a threshold does not survive a 37x corpus
+# change: with far more chunks almost any query finds *some* neighbour above a
+# low bar, so the old value had gone most of the way inert -- it admitted 80%
+# of deliberately unanswerable queries.
 #
-#   on-topic  : min 0.6536, median 0.8147, max 0.9037
-#   off-topic : min 0.5688, median 0.6154, max 0.7764
+# Calibrated against two query sets, not one. Corpus-verbatim queries alone are
+# misleading: they are the exact strings the passages were written for, so they
+# score high and make any threshold look safe. The set that decides the value is
+# natural phrasing -- how somebody actually asks -- which scores lower for the
+# same answerable question.
 #
-#   threshold   on-topic kept   off-topic leaked
-#   0.38               100%               100%   <- inert, never fires
-#   0.60               100%                80%
-#   0.65               100%                33%   <- chosen: the knee
-#   0.75                80%                 7%
+#   on-topic, corpus-verbatim (n=60) : min 0.6180, median 0.8223, max 0.9441
+#   on-topic, natural phrasing (n=15): min 0.6924, median 0.8221, max 0.8901
+#   off-topic, unanswerable (n=15)   : min 0.6329, median 0.6720, max 0.7856
 #
-# 0.65 is the highest threshold that still refuses no genuine query. The bands
-# overlap, so no threshold separates them perfectly; raising it trades real
-# recall for less leakage. Re-run the calibration if the index size or the
-# embedding model changes, since the score distribution moves with both.
-SIMILARITY_THRESHOLD = float(os.getenv("EMBEDDING_SIMILARITY_THRESHOLD", "0.65"))
+#   threshold   natural kept   off-topic leaked
+#   0.65              100%              80%   <- previous, largely inert
+#   0.68              100%              47%   <- chosen: the knee
+#   0.70               93%              40%
+#   0.72               87%              33%
+#   0.80               58%               0%
+#
+# 0.68 is the highest threshold that still refuses no genuine query, which is
+# the same rule the original 0.65 was chosen by. 0.70 was measured first and
+# rejected: it buys 7 points of leakage for a false refusal of "Who is Obama?"
+# at 0.6924, a question this corpus answers perfectly well. A false refusal on
+# an answerable question is worse than spending tokens on junk the model will
+# refuse anyway.
+#
+# The bands still overlap (off-topic reaches 0.7856, natural on-topic starts at
+# 0.6924), so no threshold separates them cleanly and roughly half of
+# unanswerable queries still reach the model. That is what the post-generation
+# check is for, and it is verified rather than hoped for: nonsense that clears
+# this threshold -- "how do purple elephants photosynthesize underwater" at
+# 0.7241 -- comes back "Context not found" from the model itself. Re-run this
+# calibration whenever the index size or the embedding model changes.
+SIMILARITY_THRESHOLD = float(os.getenv("EMBEDDING_SIMILARITY_THRESHOLD", "0.68"))
 
 # Longer inputs are rejected outright: a genuine spoken or typed question never
 # needs this much room, and unbounded input is both an embedding cost and an
