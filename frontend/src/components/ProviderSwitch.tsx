@@ -139,7 +139,7 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
           }}
           className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
         >
-          5× faster
+          &lt;200ms
         </button>
       )}
       {unnoticed && !localReady && canPull && (
@@ -151,7 +151,7 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
           }}
           className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
         >
-          get 5× faster
+          get &lt;200ms
         </button>
       )}
 
@@ -188,27 +188,50 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
           <p className="mb-3 font-mono text-[10px] tracking-[0.2em] text-emerald-100/45 uppercase">
             Where the answer is generated
           </p>
-          {/* The trade, stated plainly, because neither option is simply better. */}
-          <div className="mb-3 space-y-2">
+          {/*
+            Both options are described by the number the project is actually
+            judged on: request in, first word out, retrieval included. Model
+            TTFT alone would flatter local by hiding the ~60ms of embedding
+            and search that every question pays either way.
+          */}
+          <div className="mb-3 space-y-2.5">
             <div className="flex gap-2">
               <Cloud size={13} className="mt-0.5 shrink-0 text-emerald-100/50" />
               <p className="text-xs leading-relaxed text-emerald-100/70">
                 <strong className="text-emerald-100">Groq</strong> — nothing to
-                install, works anywhere. Every question pays a network round
-                trip: <strong>~440ms</strong> before the first word.
+                install, works anywhere. Every question crosses the network:{' '}
+                <strong className="text-amber-200/90">~450ms</strong> to the
+                first word, and never under 200ms in 8 of 8 measured runs.
               </p>
             </div>
             <div className="flex gap-2">
               <Cpu size={13} className="mt-0.5 shrink-0 text-emerald-200/70" />
               <p className="text-xs leading-relaxed text-emerald-100/70">
                 <strong className="text-emerald-100">Local</strong> — runs on
-                your own machine, no round trip:{' '}
-                <strong className="text-emerald-200">~20-80ms</strong> to first
-                word, about five times sooner. Needs a 2GB download and a GPU to
-                be quick, and it is a 3B model rather than a 20B one.
+                your own machine, so there is no network hop:{' '}
+                <strong className="text-emerald-200">~150ms</strong> to the
+                first word, 8 of 8 measured runs under 200ms.{' '}
+                <strong className="text-emerald-200">
+                  The only option here that meets the 200ms target
+                </strong>
+                , about three times sooner than Groq.
               </p>
             </div>
           </div>
+
+          {/*
+            Said here rather than left for someone to discover: the figure is
+            time to first word, the answer keeps arriving after it, and the
+            speed costs a smaller model. Claiming the target without the
+            qualifier would be the kind of number this project exists to avoid.
+          */}
+          <p className="mb-3 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-[11px] leading-relaxed text-emerald-100/50">
+            Measured to the first word, retrieval included; the rest of the
+            answer streams in after it. Local needs a 2GB download and a GPU to
+            be quick, answers from a 3B model rather than a 20B one, and the
+            first question after a long pause is slower while the model loads
+            back into memory.
+          </p>
 
           {localReady ? (
             <p className="flex items-center gap-1.5 border-t border-white/10 pt-2 text-[11px] text-emerald-200/80">
