@@ -162,6 +162,9 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
     if (!query) return
     setErrorMessage(null)
     setResponse(null)
+    // A new question replaces the old answer, so the old answer should stop
+    // being read out.
+    stopSpeech()
     setState('processing')
     try {
       const result = await postQuery(query, {
@@ -172,7 +175,7 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
     } catch (error) {
       fail(error)
     }
-  }, [text, language, settle, fail, provider])
+  }, [text, language, settle, fail, provider, stopSpeech])
 
   const pollLevel = useCallback(() => {
     const handle = recorder.current
@@ -184,6 +187,11 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
   const beginRecording = useCallback(async () => {
     setErrorMessage(null)
     setResponse(null)
+    // Silence the previous answer before opening the microphone. Two reasons,
+    // and the second is the one that actually breaks things: talking over the
+    // user is rude, but the microphone would also record the speaker, and the
+    // transcript would come back as the last answer read aloud.
+    stopSpeech()
     try {
       recorder.current = await startRecording()
       setState('listening')
@@ -198,7 +206,7 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
           : `Could not start the microphone: ${(error as Error).message}`,
       )
     }
-  }, [pollLevel])
+  }, [pollLevel, stopSpeech])
 
   const finishRecording = useCallback(async () => {
     const handle = recorder.current
