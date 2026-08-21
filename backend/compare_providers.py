@@ -136,8 +136,18 @@ async def main() -> int:
 
     parser = argparse.ArgumentParser(description="Compare Groq against local Ollama.")
     parser.add_argument("--queries", type=int, default=len(QUERIES))
-    parser.add_argument("--ollama-model", default=OLLAMA_MODEL)
+    parser.add_argument(
+        "--ollama-model",
+        nargs="+",
+        default=[OLLAMA_MODEL],
+        help="one or more local models; pass several to compare them against each other",
+    )
     parser.add_argument("--groq-model", default=GROQ_MODEL)
+    parser.add_argument(
+        "--skip-groq",
+        action="store_true",
+        help="compare local models only, without spending Groq quota",
+    )
     args = parser.parse_args()
 
     print("loading index...")
@@ -156,8 +166,13 @@ async def main() -> int:
         )
     print(f"prepared {len(prompts)} prompts from identical retrieved context\n")
 
+    plan: list[tuple[str, str]] = []
+    if not args.skip_groq:
+        plan.append(("groq", args.groq_model))
+    plan.extend(("ollama", model) for model in args.ollama_model)
+
     columns: list[Column] = []
-    for provider, model in (("groq", args.groq_model), ("ollama", args.ollama_model)):
+    for provider, model in plan:
         print(f"measuring {provider} ({model})...")
         harness = GroqHarness(provider=provider, model=model)
         try:

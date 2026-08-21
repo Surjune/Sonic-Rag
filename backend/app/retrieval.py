@@ -31,6 +31,30 @@ from app.config import (
 from app.exceptions import IndexNotLoadedError
 
 
+# Trailing sentence punctuation, in the scripts this pipeline accepts. The
+# Devanagari danda is included because Sarvam ends Hindi transcriptions with it.
+_TRAILING_PUNCTUATION = " \t\n.?!,;:।॥"
+
+
+def canonical_query(text: str) -> str:
+    """One vector for one question, however it was asked.
+
+    Speech recognition punctuates -- saaras returns "Tell me about Obama." --
+    and people typing usually do not. bge-small embeds those as different
+    sentences, and the gap is large enough to matter: measured at 0.7002 bare
+    against 0.6795 with a full stop, which straddles the 0.68 grounding
+    threshold. The same question was answered when typed and refused when
+    spoken, which looked like a bug in the voice pipeline and was really a
+    difference in the string it produced.
+
+    Only trailing punctuation is removed. Punctuation inside a query carries
+    meaning -- "C++" and "C" are not the same search -- so nothing else is
+    touched, and this never runs on the passage side, which was indexed as
+    written.
+    """
+    return text.strip().rstrip(_TRAILING_PUNCTUATION) or text.strip()
+
+
 @dataclass
 class Hit:
     """One retrieved chunk with its cosine score."""
@@ -112,7 +136,8 @@ class RetrievalEngine:
         """
         self._require_ready()
         vector = np.asarray(
-            list(self._embedder.embed([QUERY_INSTRUCTION + text])), dtype=np.float32
+            list(self._embedder.embed([QUERY_INSTRUCTION + canonical_query(text)])),
+            dtype=np.float32,
         )
         faiss.normalize_L2(vector)
         return vector

@@ -157,3 +157,44 @@ class TestChunkRow:
         parents, children = chunk_row({"query_id": 1}, "hi")
         assert parents == []
         assert children == []
+
+
+class TestCanonicalQuery:
+    """Speech recognition punctuates; typing usually does not.
+
+    bge-small embeds "Tell me about Obama" and "Tell me about Obama." as
+    different sentences, measured 0.7002 against 0.6795 -- either side of the
+    0.68 grounding threshold. The same question was answered when typed and
+    refused when spoken.
+    """
+
+    def test_trailing_punctuation_is_removed(self) -> None:
+        from app.retrieval import canonical_query
+
+        for text in ("Tell me about Obama.", "Tell me about Obama?", "Tell me about Obama!"):
+            assert canonical_query(text) == "Tell me about Obama"
+
+    def test_devanagari_danda_is_removed(self) -> None:
+        """Sarvam ends Hindi transcriptions with it."""
+        from app.retrieval import canonical_query
+
+        assert canonical_query("निगम क्या है।") == "निगम क्या है"
+
+    def test_internal_punctuation_is_kept(self) -> None:
+        """"C++" and "C" are not the same search."""
+        from app.retrieval import canonical_query
+
+        assert canonical_query("what is C++") == "what is C++"
+        assert canonical_query("what is C++?") == "what is C++"
+        assert canonical_query("a.b.c question") == "a.b.c question"
+
+    def test_punctuation_only_input_survives(self) -> None:
+        """Stripping everything would embed the empty string."""
+        from app.retrieval import canonical_query
+
+        assert canonical_query("???") == "???"
+
+    def test_surrounding_whitespace_is_removed(self) -> None:
+        from app.retrieval import canonical_query
+
+        assert canonical_query("  what is inflation ? ") == "what is inflation"
