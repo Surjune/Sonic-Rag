@@ -285,7 +285,7 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
             })
           },
         },
-        { language: language === 'auto' ? null : language },
+        { language: language === 'auto' ? null : language, provider },
       )
 
       if (blocked && partial) {
@@ -301,7 +301,7 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
     } catch (error) {
       fail(error)
     }
-  }, [language, fail, onSample, autoSpeak, playSpeech])
+  }, [language, fail, onSample, autoSpeak, playSpeech, provider])
 
   // Only real prose is worth speaking. A blocked request's message is UI
   // copy, not an answer, and reading it aloud would be odd.

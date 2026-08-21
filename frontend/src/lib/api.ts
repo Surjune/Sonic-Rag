@@ -103,12 +103,13 @@ export async function getChunkingComparison(): Promise<CompareResponse> {
 
 export async function postVoice(
   audio: Blob,
-  options: { language?: Language | null; topK?: number } = {},
+  options: { language?: Language | null; topK?: number; provider?: string | null } = {},
 ): Promise<QueryResponse> {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
   if (options.language) form.append('language', options.language)
   form.append('top_k', String(options.topK ?? 5))
+  if (options.provider) form.append('provider', options.provider)
   return parse<QueryResponse>(await fetch(`${BASE}/api/voice`, { method: 'POST', body: form }))
 }
 
@@ -194,12 +195,13 @@ async function consumeSse(response: Response, handlers: SseHandlers): Promise<vo
 export async function streamVoice(
   audio: Blob,
   handlers: SseHandlers,
-  options: { language?: Language | null; topK?: number } = {},
+  options: { language?: Language | null; topK?: number; provider?: string | null } = {},
 ): Promise<void> {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
   if (options.language) form.append('language', options.language)
   form.append('top_k', String(options.topK ?? 5))
+  if (options.provider) form.append('provider', options.provider)
 
   await consumeSse(
     await fetch(`${BASE}/api/voice/stream`, { method: 'POST', body: form }),

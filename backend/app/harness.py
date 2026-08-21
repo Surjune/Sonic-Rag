@@ -68,6 +68,17 @@ SYSTEM_PROMPT = (
     f"Only if the passages genuinely do not address the subject, reply exactly: "
     f"{UNGROUNDED_MESSAGE}. "
     "Never use outside knowledge and never invent details. "
+    # The observed failure was not a wholly invented answer -- it was a real
+    # definition lifted from a passage, followed by several paragraphs of
+    # advice from the model's own training that no passage contained. Partial
+    # padding is the harder case, because the grounded opening makes the rest
+    # look sourced, so the prompt has to rule out the continuation explicitly
+    # rather than only forbidding invention in general.
+    "Do not add advice, steps, recommendations, examples or background that the "
+    "passages do not state, even when you know them to be true and even when they "
+    "would be helpful. If the passages define a term but do not answer what was "
+    f"asked about it, say {UNGROUNDED_MESSAGE} rather than defining the term and "
+    "continuing from your own knowledge. "
     "Answer in {language}. Be concise: two or three sentences."
 )
 

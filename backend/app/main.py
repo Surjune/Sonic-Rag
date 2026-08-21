@@ -535,6 +535,7 @@ async def voice(
     file: UploadFile = File(...),
     language: str | None = Form(default=None),
     top_k: int = Form(default=DEFAULT_TOP_K),
+    provider: str | None = Form(default=None),
 ) -> Any:
     """Voice question in. saaras returns English directly, so no translate hop."""
     trace = LatencyTrace()
@@ -648,15 +649,17 @@ async def voice(
         }
 
     contexts = engine.build_contexts(hits)
+    backend = select_harness(provider)
     llm_started = time.perf_counter()
     with trace.stage("llm"):
-        result = await harness.generate(
+        result = await backend.generate(
             GenerationRequest(
                 query=verdict.normalized_query, contexts=contexts, language=answer_language
             )
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
     trace.mark("first_output", llm_started + result.ttft_ms / 1000)
+    backend.schedule_pin()
 
     return {
         "answer": result.text,
@@ -669,6 +672,7 @@ async def voice(
         "top_score": round(grounding.top_score, 4),
         "contexts": _serialize_hits(hits, answer_language),
         "model": result.model,
+        "provider": backend.provider,
         "within_budget": result.within_budget,
         "latency": trace.as_dict(),
     }
@@ -679,6 +683,7 @@ async def voice_stream(
     file: UploadFile = File(...),
     language: str | None = Form(default=None),
     top_k: int = Form(default=DEFAULT_TOP_K),
+    provider: str | None = Form(default=None),
 ) -> StreamingResponse:
     """Voice in, answer streamed out.
 
@@ -790,12 +795,13 @@ async def voice_stream(
             contexts=engine.build_contexts(hits),
             language=answer_language,
         )
+        backend = select_harness(provider)
         pieces: list[str] = []
         first_token_at: float | None = None
         llm_started = time.perf_counter()
         try:
             with trace.stage("llm"):
-                async for piece in harness.stream(generation):
+                async for piece in backend.stream(generation):
                     if first_token_at is None:
                         first_token_at = time.perf_counter()
                     pieces.append(piece)
@@ -810,6 +816,7 @@ async def voice_stream(
             # everything after it is the answer still arriving, which the
             # reader is already consuming rather than waiting on.
             trace.mark("first_output", first_token_at)
+        backend.schedule_pin()
         model_refused = is_ungrounded_reply("".join(pieces))
         yield (
             "event: done\ndata: "
