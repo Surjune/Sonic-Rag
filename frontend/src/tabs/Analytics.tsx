@@ -205,7 +205,7 @@ export function Analytics({
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto pr-1">
+    <div className="flex flex-col gap-3 md:gap-4 lg:h-full lg:overflow-y-auto lg:pr-1">
       <Panel className="flex flex-wrap items-center justify-between gap-2 p-3">
         <SectionTitle
           title="Cohort"

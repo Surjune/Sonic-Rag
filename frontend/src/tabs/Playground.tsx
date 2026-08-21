@@ -341,13 +341,18 @@ export function Playground({
   const recording = state === 'listening'
   const latency = response?.latency
 
+  // Two pinned columns on a wide screen, an ordinary stack on a phone.
+  // `h-full` and `overflow-hidden` are what keep the visualizer, the input and
+  // the answer on screen together at desktop sizes; on a phone the same pair
+  // traps the answer inside a viewport-height box that the orb already fills,
+  // so both become lg-only and the page scrolls instead.
   return (
-    <div className="grid h-full grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_400px]">
+    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:h-full lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
       {/* Visualizer + input */}
-      <div className="flex min-h-0 flex-col gap-4">
+      <div className="flex min-h-0 flex-col gap-3 md:gap-4">
         {/* panel-glass so the beach illustration reads as the orb's setting
             rather than being hidden behind an opaque surface. */}
-        <Panel className="panel-glass relative min-h-0 flex-1 overflow-hidden">
+        <Panel className="panel-glass relative h-[52vh] min-h-[300px] overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
           {/*
             DPR is capped and adaptive. On an integrated GPU a 2x device pixel
             ratio quadruples fragment work, and during a local demo the browser
@@ -407,7 +412,7 @@ export function Playground({
 
           {/* Latency HUD */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
-            <div className="panel grid grid-cols-3 gap-3 rounded-lg px-4 py-3 sm:grid-cols-6">
+            <div className="panel grid grid-cols-3 gap-x-3 gap-y-2 rounded-lg px-3 py-2.5 sm:grid-cols-6 md:px-4 md:py-3">
               <Metric label="STT" value={latency?.stt} />
               <Metric label="Embed" value={latency?.embed} />
               <Metric label="FAISS" value={latency?.faiss} budgetMs={5} />
@@ -431,11 +436,12 @@ export function Playground({
 
         <Panel className="p-3">
           <div className="flex flex-wrap items-center gap-2">
+            {/* Order matters only while wrapped: field first, controls beneath. */}
             <button
               type="button"
               onClick={recording ? finishRecording : beginRecording}
               disabled={busy}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+              className={`order-2 flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition sm:order-none sm:flex-none ${
                 recording
                   ? 'bg-fuchsia-600 text-white hover:bg-fuchsia-500'
                   : 'bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-40'
@@ -456,13 +462,13 @@ export function Playground({
               }}
               disabled={busy || recording}
               placeholder="Ask in English, हिन्दी, or தமிழ்…"
-              className="min-w-40 flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40"
+              className="order-1 w-full min-w-0 flex-1 rounded-lg border border-slate-700 sm:order-none sm:w-auto bg-slate-900/60 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40"
             />
 
             <select
               value={language}
               onChange={(event) => setLanguage(event.target.value as Language | 'auto')}
-              className="rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-2.5 text-sm text-slate-300 focus:border-cyan-500/60 focus:outline-none"
+              className="order-3 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-2.5 text-sm text-slate-300 focus:border-cyan-500/60 focus:outline-none sm:order-none"
             >
               {LANGUAGES.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -475,7 +481,7 @@ export function Playground({
               type="button"
               onClick={() => void submitText()}
               disabled={busy || recording || !text.trim()}
-              className="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-30"
+              className="order-4 flex flex-1 items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-30 sm:order-none sm:flex-none"
             >
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
               Ask
@@ -485,7 +491,7 @@ export function Playground({
       </div>
 
       {/* Answer + retrieved context */}
-      <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-col gap-3 md:gap-4 lg:overflow-y-auto lg:pr-1">
         <AnimatePresence mode="wait">
           {errorMessage && (
             <motion.div
@@ -527,7 +533,7 @@ export function Playground({
                         ? 'Stop'
                         : 'Play this answer aloud'
                   }
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-wider uppercase transition disabled:opacity-40 ${
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 font-mono text-[10px] tracking-wider uppercase transition disabled:opacity-40 sm:py-1 ${
                     speechError
                       ? 'border-rose-400/40 text-rose-200/80'
                       : 'border-white/15 text-emerald-100/70 hover:border-white/30 hover:text-emerald-100'
@@ -556,7 +562,7 @@ export function Playground({
                       ? 'Voice questions are answered aloud. Click to stop that.'
                       : 'Voice questions are answered in text only. Click to hear them.'
                   }
-                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-wider uppercase transition ${
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 font-mono text-[10px] tracking-wider uppercase transition sm:py-1 ${
                     autoSpeak
                       ? 'border-emerald-300/40 text-emerald-200'
                       : 'border-white/15 text-emerald-100/40 hover:text-emerald-100/70'

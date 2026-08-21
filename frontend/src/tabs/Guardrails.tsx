@@ -83,7 +83,7 @@ export function Guardrails({ threshold }: { threshold: number }) {
   const total = audit?.total_count ?? 0
 
   return (
-    <div className="grid h-full grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:h-full lg:grid-cols-[380px_minmax(0,1fr)] lg:overflow-hidden">
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
         <div className="grid grid-cols-3 gap-3">
           {[

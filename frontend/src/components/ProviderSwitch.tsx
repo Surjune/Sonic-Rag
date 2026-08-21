@@ -159,7 +159,7 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 z-50 mt-2 w-[23rem] rounded-xl border border-white/20 bg-[#031109] p-4 text-left shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)]">
+        <div className="absolute top-full right-0 z-50 mt-2 w-[min(23rem,calc(100vw-1.5rem))] rounded-xl border border-white/20 bg-[#031109] p-4 text-left shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)]">
           <p className="mb-3 font-mono text-[10px] tracking-[0.2em] text-emerald-100/45 uppercase">
             Where the answer is generated
           </p>

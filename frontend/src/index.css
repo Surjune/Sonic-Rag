@@ -21,7 +21,7 @@
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
@@ -31,7 +31,31 @@ body {
   /* Indic glyphs need a font that actually has them; without this Devanagari
      and Tamil fall back to tofu boxes on a clean Windows install. */
   font-feature-settings: 'kern';
-  overflow: hidden;
+}
+
+/*
+ * The fixed-height app shell is a desktop idea.
+ *
+ * On a wide screen, pinning everything to the viewport keeps the visualizer,
+ * the input and the answer visible at once, which is the whole point of the
+ * layout. On a phone the same rule clips content with no way to reach it:
+ * `overflow: hidden` on the body removes scrolling entirely, and `height:
+ * 100%` is measured against a viewport that changes size as the address bar
+ * hides, so the bottom of the page ends up under the browser chrome.
+ *
+ * Below md the page is an ordinary scrolling document instead. dvh rather
+ * than vh, because dvh tracks the address bar and vh does not.
+ */
+@media (min-width: 768px) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+
+  body {
+    overflow: hidden;
+  }
 }
 
 /*

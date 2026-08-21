@@ -88,7 +88,7 @@ export default function App() {
   const threshold = health?.similarity_threshold ?? 0.65
 
   return (
-    <div className="grid-backdrop flex h-full flex-col">
+    <div className="grid-backdrop flex min-h-[100dvh] flex-col md:h-full">
       {/*
         One row: product on the left, event wordmark centred, status on the
         right. The wordmark is absolutely positioned rather than placed in the
@@ -96,7 +96,7 @@ export default function App() {
         `mx-auto` would push it off-centre by the difference. Hidden below xl,
         where the sides would otherwise collide with it.
       */}
-      <header className="relative flex shrink-0 items-center gap-3 border-b border-white/10 px-5 py-2.5">
+      <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/10 px-3 py-2 md:flex-nowrap md:px-5 md:py-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <AudioLines style={{ color: 'var(--color-goa-yellow)' }} size={20} className="shrink-0" />
           <h1 className="display-type text-lg leading-none whitespace-nowrap">SONIC&nbsp;RAG</h1>
@@ -137,10 +137,12 @@ export default function App() {
                 onChange={setProvider}
                 onRefresh={refreshProviders}
               />
-              <Badge tone={health.circuit === 'CLOSED' ? 'emerald' : 'rose'}>
-                circuit {health.circuit}
-              </Badge>
-              <Badge tone="slate">θ {health.similarity_threshold}</Badge>
+              <span className="hidden sm:contents">
+                <Badge tone={health.circuit === 'CLOSED' ? 'emerald' : 'rose'}>
+                  circuit {health.circuit}
+                </Badge>
+                <Badge tone="slate">θ {health.similarity_threshold}</Badge>
+              </span>
             </>
           ) : (
             <Badge tone="slate">connecting…</Badge>
@@ -156,7 +158,7 @@ export default function App() {
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`relative flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium transition ${
+              className={`relative flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition sm:gap-2 sm:px-3.5 ${
                 active ? '' : 'text-emerald-100/45 hover:text-emerald-100/80'
               }`}
               style={active ? { color: 'var(--color-goa-yellow)' } : undefined}
@@ -173,7 +175,7 @@ export default function App() {
                 />
               )}
               {/* Numbered sections, as on the event site's nav. */}
-              <span className="relative font-mono text-[10px] opacity-70">{num}</span>
+              <span className="relative hidden font-mono text-[10px] opacity-70 sm:inline">{num}</span>
               <Icon size={14} className="relative" />
               <span className="relative">{label}</span>
             </button>
@@ -192,7 +194,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="min-h-0 flex-1 p-4">
+      <main className="min-h-0 flex-1 p-3 md:p-4">
         <AnimatePresence mode="wait">
           <motion.div
             key={tab}
