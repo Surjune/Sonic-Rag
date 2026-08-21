@@ -244,7 +244,7 @@ export default function App() {
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 transition"
+              className="relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 transition"
               style={{ color: active ? 'var(--color-goa-yellow)' : 'rgba(209,250,229,0.45)' }}
             >
               <Icon size={18} />

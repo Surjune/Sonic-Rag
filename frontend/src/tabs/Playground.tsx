@@ -35,6 +35,13 @@ const LANGUAGES: { value: Language | 'auto'; label: string }[] = [
   { value: 'ta', label: 'தமிழ்' },
 ]
 
+const STARTERS = [
+  'What is a corporation?',
+  'What causes diabetes?',
+  'How do vaccines work?',
+  'निगम क्या है?',
+] as const
+
 const STATE_LABEL: Record<PipelineState, string> = {
   idle: 'Idle',
   listening: 'Listening',
@@ -173,8 +180,8 @@ export function Playground({
     )
   }, [])
 
-  const submitText = useCallback(async () => {
-    const query = text.trim()
+  const submitText = useCallback(async (override?: string) => {
+    const query = (override ?? text).trim()
     if (!query) return
     setErrorMessage(null)
     setResponse(null)
@@ -370,9 +377,9 @@ export function Playground({
             <Orb state={state} level={level} />
           </Canvas>
 
-          <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-4">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 p-3 md:p-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span
                   className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
                   style={{ background: 'currentColor' }}
@@ -400,18 +407,25 @@ export function Playground({
                   type="button"
                   onClick={() => onProviderChange('ollama')}
                   title="Answer on this machine instead, with no network round trip"
-                  className="flex items-center gap-1.5 rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2.5 py-1 font-mono text-[10px] tracking-wider text-emerald-200 uppercase shadow-lg backdrop-blur-sm transition hover:bg-emerald-300/20"
+                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2 py-1 font-mono text-[10px] tracking-wider whitespace-nowrap text-emerald-200 uppercase shadow-lg backdrop-blur-sm transition hover:bg-emerald-300/20 sm:px-2.5"
                 >
                   <Zap size={11} className="animate-pulse" />
-                  for lower latency use local · &lt;200ms
+                  {/* The full sentence needs a row it does not get on a phone,
+                      where it wrapped across the status label beside it. */}
+                  <span className="hidden sm:inline">for lower latency use local · </span>
+                  &lt;200ms
                 </button>
               )}
-              {response?.model && <Badge tone="cyan">{response.model}</Badge>}
+              {response?.model && (
+                <span className="hidden sm:inline">
+                  <Badge tone="cyan">{response.model}</Badge>
+                </span>
+              )}
             </div>
           </div>
 
           {/* Latency HUD */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4">
             <div className="panel grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg px-3 py-2 sm:grid-cols-6 md:px-4 md:py-3">
               <Metric className="hidden sm:block" label="STT" value={latency?.stt} />
               <Metric className="hidden sm:block" label="Embed" value={latency?.embed} />
@@ -503,6 +517,27 @@ export function Playground({
 
       {/* Answer + retrieved context */}
       <div className="flex min-h-0 flex-col gap-3 md:gap-4 lg:overflow-y-auto lg:pr-1">
+        {!response && !errorMessage && state === 'idle' && (
+          <Panel className="p-4">
+            <SectionTitle title="Try asking" hint="questions this corpus can answer" />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {STARTERS.map((starter) => (
+                <button
+                  key={starter}
+                  type="button"
+                  onClick={() => {
+                    setText(starter)
+                    void submitText(starter)
+                  }}
+                  className="rounded-full border border-white/15 px-3 py-2 text-left text-xs text-emerald-100/75 transition hover:border-emerald-300/40 hover:text-emerald-100"
+                >
+                  {starter}
+                </button>
+              ))}
+            </div>
+          </Panel>
+        )}
+
         <AnimatePresence mode="wait">
           {errorMessage && (
             <motion.div

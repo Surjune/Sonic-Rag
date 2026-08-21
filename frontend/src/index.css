@@ -59,18 +59,16 @@ body {
 }
 
 /*
- * The event's beach illustration as the actual backdrop.
+ * The event's beach illustration as the backdrop -- on a screen wide enough
+ * for it.
  *
  * The artwork carries the sun, rays, palms, shack and sea, so the CSS sun that
- * used to live here is gone -- two suns in one frame looked like a mistake.
+ * used to live here is gone: two suns in one frame looked like a mistake.
+ * Anchored to the bottom so the beach sits along the lower edge at any window
+ * height, with `fixed` attachment keeping the scene still while panels scroll
+ * over it, which reads as a backdrop rather than as content.
  *
- * `fixed` attachment keeps the scene still while panels scroll over it, which
- * reads as a backdrop rather than as content. Anchored to the bottom so the
- * beach and palms sit along the lower edge at any window height, with the sun
- * remaining visible above them.
- */
-/*
- * No illustration on a phone.
+ * None of that on a phone.
  *
  * The artwork is a wide landscape scene. `cover` on a portrait screen crops it
  * to a narrow vertical slice, which shows sand and a palm trunk rather than
@@ -148,8 +146,13 @@ body {
 }
 
 /* The grain is painted after the content in source order, so without this the
-   overlay would sit on top of every panel and mute the whole interface. */
-.grid-backdrop > * {
+   overlay would sit on top of every panel and mute the whole interface.
+   
+   `:not(.fixed)` matters more than it looks. This rule is unlayered, so it
+   beats Tailwind's utilities, which live in a @layer -- and it was silently
+   turning the fixed bottom navigation back into a relative element, so it
+   scrolled away with the page instead of staying put. */
+.grid-backdrop > *:not(.fixed) {
   position: relative;
   z-index: 1;
 }
