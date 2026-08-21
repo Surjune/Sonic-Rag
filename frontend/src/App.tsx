@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Activity, AudioLines, Layers, Mic, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { ProviderSwitch } from './components/ProviderSwitch'
 import { Badge } from './components/ui'
-import { getHealth } from './lib/api'
-import type { HealthResponse, LatencySample } from './lib/types'
+import { getHealth, getProviders } from './lib/api'
+import type { HealthResponse, LatencySample, ProvidersResponse } from './lib/types'
 import { Analytics } from './tabs/Analytics'
 import { ChunkExplorer } from './tabs/ChunkExplorer'
 import { Guardrails } from './tabs/Guardrails'
@@ -33,6 +34,16 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [healthError, setHealthError] = useState<string | null>(null)
   const [samples, setSamples] = useState<LatencySample[]>([])
+  const [providers, setProviders] = useState<ProvidersResponse | null>(null)
+  // Which backend answers. Remembered, so choosing local once does not have to
+  // be chosen again on every reload.
+  const [provider, setProvider] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sonic-rag.provider') || 'groq'
+    } catch {
+      return 'groq'
+    }
+  })
 
   useEffect(() => {
     const load = () =>
@@ -46,6 +57,27 @@ export default function App() {
     const timer = setInterval(() => void load(), 10000)
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    getProviders()
+      .then((result) => {
+        setProviders(result)
+        // A remembered choice that is no longer reachable -- Ollama stopped,
+        // model removed -- silently falls back rather than failing every query.
+        setProvider((current) =>
+          result.available.includes(current) ? current : result.default,
+        )
+      })
+      .catch(() => setProviders(null))
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sonic-rag.provider', provider)
+    } catch {
+      // Storage being unavailable is not a reason to break the switch.
+    }
+  }, [provider])
 
   const addSample = useCallback((sample: LatencySample) => {
     setSamples((previous) => [...previous, sample])
@@ -97,7 +129,7 @@ export default function App() {
               <Badge tone={health.index_loaded ? 'emerald' : 'rose'}>
                 {health.index_loaded ? `${health.index_size.toLocaleString()} vectors` : 'no index'}
               </Badge>
-              <Badge tone={health.groq_configured ? 'cyan' : 'amber'}>{health.groq_model}</Badge>
+              <ProviderSwitch providers={providers} value={provider} onChange={setProvider} />
               <Badge tone={health.circuit === 'CLOSED' ? 'emerald' : 'rose'}>
                 circuit {health.circuit}
               </Badge>
@@ -163,7 +195,9 @@ export default function App() {
             transition={{ duration: 0.16 }}
             className="h-full"
           >
-            {tab === 'playground' && <Playground threshold={threshold} onSample={addSample} />}
+            {tab === 'playground' && (
+              <Playground threshold={threshold} onSample={addSample} provider={provider} />
+            )}
             {tab === 'analytics' && (
               <Analytics samples={samples} onClear={() => setSamples([])} />
             )}

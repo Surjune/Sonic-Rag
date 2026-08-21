@@ -215,6 +215,26 @@ GROQ_TRANSLATE_URL = "https://api.groq.com/openai/v1/audio/translations"
 GROQ_WHISPER_MODEL = os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
 GROQ_WHISPER_TRANSLATE_MODEL = os.getenv("GROQ_WHISPER_TRANSLATE_MODEL", "whisper-large-v3")
 
+# --- text to speech (Sarvam bulbul) -------------------------------------------
+#
+# The counterpart to speech input: a question asked by voice should be
+# answerable by voice. Bulbul rather than the browser's speechSynthesis because
+# Hindi and Tamil voices are absent on most Windows installs, so the two
+# languages this project exists for would fall back to an English voice reading
+# Devanagari -- worse than no audio.
+#
+# Synthesis is per-request and opt-in. It costs a round trip and Sarvam quota,
+# and a user reading the answer on screen should not pay for audio nobody plays.
+SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
+SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v2")
+SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "anushka")
+
+# bulbul:v2 rejects anything past 1500 characters outright, which would turn a
+# long answer into no audio at all. Answers are capped at two or three
+# sentences by the system prompt, so this is headroom rather than a limit that
+# is expected to bite.
+SARVAM_TTS_MAX_CHARS = int(os.getenv("SARVAM_TTS_MAX_CHARS", "1500"))
+
 # --- text translation -------------------------------------------------------
 
 # A TYPED Hindi or Tamil question still has to reach an English vector space.

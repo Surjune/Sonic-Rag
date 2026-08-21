@@ -26,6 +26,8 @@ from pydantic import BaseModel, Field
 
 from app.config import (
     CORS_ORIGINS,
+    OLLAMA_API_URL,
+    OLLAMA_MODEL,
     DEFAULT_TOP_K,
     GROQ_MODEL,
     SIMILARITY_THRESHOLD,
@@ -46,6 +48,7 @@ from app.chunkers import STRATEGY_ORDER, get_chunker
 from app.harness import GenerationRequest, GroqHarness, is_ungrounded_reply
 from app.retrieval import Hit, engine
 from app.stt_service import SpeechToText
+from app.tts_service import TextToSpeech
 from app.telemetry import LatencyTrace
 from app.tools import Tool, ToolRegistry
 from app.translation import SarvamTranslator, detect_script
@@ -55,8 +58,10 @@ from app.translation import SarvamTranslator, detect_script
 AUDIT_LOG: Deque[AuditEntry] = deque(maxlen=200)
 
 harness: GroqHarness
+local_harness: GroqHarness
 stt: SpeechToText
 translator: SarvamTranslator
+tts: TextToSpeech
 
 
 def build_tool_registry() -> ToolRegistry:
@@ -124,10 +129,17 @@ def build_tool_registry() -> ToolRegistry:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load everything expensive once, before the first request arrives."""
-    global harness, stt, translator
-    harness = GroqHarness(tools=build_tool_registry())
+    global harness, local_harness, stt, translator, tts
+    tools = build_tool_registry()
+    harness = GroqHarness(tools=tools)
+    # Built regardless of whether Ollama is installed. Constructing it costs
+    # nothing -- no connection is opened until a request selects it -- and
+    # having it ready is what lets the interface offer the switch instead of
+    # requiring a restart to change backends.
+    local_harness = GroqHarness(provider="ollama", tools=tools)
     stt = SpeechToText()
     translator = SarvamTranslator()
+    tts = TextToSpeech()
 
     try:
         # Blocking disk and ONNX work; keep it off the event loop.
@@ -141,13 +153,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # pays DNS plus a TLS handshake; paying it here keeps it out of the first
     # user's measured latency.
     await asyncio.gather(
-        harness.warmup(), stt.warmup(), translator.warmup(), return_exceptions=True
+        harness.warmup(),
+        stt.warmup(),
+        translator.warmup(),
+        tts.warmup(),
+        # Wakes Ollama and pulls the model into VRAM if it happens to be
+        # running. Failure is the normal case -- most people will not have it
+        # installed -- so it is gathered with the rest and its result ignored.
+        local_harness.warmup(),
+        return_exceptions=True,
     )
     yield
 
     await harness.aclose()
+    await local_harness.aclose()
     await stt.aclose()
     await translator.aclose()
+    await tts.aclose()
 
 
 app = FastAPI(title="Sonic-RAG", version="1.0.0", lifespan=lifespan)
@@ -194,6 +216,21 @@ class QueryRequest(BaseModel):
         description="let the model call registered tools before answering; costs extra "
         "round trips, so it is opt-in rather than the default path",
     )
+    provider: str | None = Field(
+        default=None,
+        description='generation backend: "groq" (default) or "ollama" for a model '
+        "running on the caller's own machine. Selected per request so the choice "
+        "can be a switch in the interface rather than a restart.",
+    )
+
+
+def select_harness(provider: str | None) -> GroqHarness:
+    """Pick the generation backend for one request.
+
+    Anything unrecognised falls back to the default rather than erroring: a bad
+    value in a query string should not take the answer away from the user.
+    """
+    return local_harness if (provider or "").strip().lower() == "ollama" else harness
 
 
 def _serialize_hits(hits: list[Hit], language: str) -> list[dict[str, Any]]:
@@ -298,6 +335,7 @@ async def health() -> dict[str, Any]:
         "circuit": harness.circuit_state.value,
         "stt_configured": stt.configured,
         "stt_providers": stt.providers,
+        "tts_configured": tts.configured,
         "similarity_threshold": SIMILARITY_THRESHOLD,
         "ttft_budget_ms": TTFT_BUDGET_MS,
     }
@@ -356,10 +394,11 @@ async def query(request: QueryRequest) -> Any:
     generation = GenerationRequest(
         query=english_query, contexts=contexts, language=answer_language
     )
+    backend = select_harness(request.provider)
     with trace.stage("llm"):
         result = await (
-            harness.generate_with_tools(generation) if request.use_tools
-            else harness.generate(generation)
+            backend.generate_with_tools(generation) if request.use_tools
+            else backend.generate(generation)
         )
     trace.record("llm_ttft", round(result.ttft_ms, 3))
 
@@ -379,6 +418,7 @@ async def query(request: QueryRequest) -> Any:
         "threshold": grounding.threshold,
         "contexts": _serialize_hits(hits, answer_language),
         "model": result.model,
+        "provider": backend.provider,
         "within_budget": result.within_budget,
         "tool_rounds": result.tool_rounds,
         "tool_calls": [
@@ -441,12 +481,13 @@ async def query_stream(request: QueryRequest) -> StreamingResponse:
         generation = GenerationRequest(
             query=english_query, contexts=contexts, language=answer_language
         )
+        backend = select_harness(request.provider)
         pieces: list[str] = []
         first_token_at: float | None = None
         llm_started = time.perf_counter()
         try:
             with trace.stage("llm"):
-                async for piece in harness.stream(generation):
+                async for piece in backend.stream(generation):
                     if first_token_at is None:
                         first_token_at = time.perf_counter()
                     pieces.append(piece)
@@ -820,6 +861,99 @@ async def chunking_compare() -> dict[str, Any]:
 async def tools_manifest() -> dict[str, Any]:
     """What the model is allowed to call, for the interface to display."""
     return {"tools": harness.tools.schemas(), "names": harness.tools.names}
+
+
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    language: str = Field(default="en")
+
+
+@app.post("/api/speak")
+async def speak(request: SpeakRequest) -> dict[str, Any]:
+    """Synthesize an answer so it can be heard as well as read.
+
+    Separate from /api/query rather than folded into it. Synthesis costs a
+    round trip and Sarvam quota, and most answers are read rather than played,
+    so making every query pay for audio nobody asked for would be wrong. The
+    interface calls this only when the user wants sound.
+    """
+    trace = LatencyTrace()
+    language = request.language if request.language in SUPPORTED_LANGS else "en"
+
+    with trace.stage("tts"):
+        speech = await tts.speak(request.text, language)
+
+    return {
+        "audio_base64": speech.audio_base64,
+        "format": "wav",
+        "language": speech.language,
+        "model": speech.model,
+        "speaker": speech.speaker,
+        "characters": speech.characters,
+        "truncated": speech.truncated,
+        "latency": trace.as_dict(),
+    }
+
+
+@app.get("/api/providers")
+async def providers() -> dict[str, Any]:
+    """Which generation backends this deployment can actually reach right now.
+
+    Ollama is probed live rather than assumed from configuration: whether it is
+    installed, running and has the model pulled are three different things, and
+    an interface that offers a switch to a backend that cannot answer is worse
+    than one that offers no switch. The install and pull commands travel with
+    the negative answer so the interface can say what to do about it.
+    """
+    available: list[str] = []
+    models: list[str] = []
+    detail = ""
+
+    base = OLLAMA_API_URL.split("/v1/")[0]
+    try:
+        response = await local_harness._client.get(f"{base}/api/tags", timeout=1.5)
+        if response.status_code < 400:
+            models = [str(m.get("name")) for m in (response.json().get("models") or [])]
+            if any(m.split(":")[0] == OLLAMA_MODEL.split(":")[0] for m in models):
+                available.append("ollama")
+            else:
+                detail = f"Ollama is running but {OLLAMA_MODEL} is not pulled."
+        else:
+            detail = f"Ollama responded {response.status_code}."
+    except Exception:
+        detail = "Ollama is not running on this machine."
+
+    if harness.configured:
+        available.insert(0, "groq")
+
+    return {
+        "default": harness.provider,
+        "available": available,
+        "groq": {
+            "id": "groq",
+            "label": "Groq",
+            "model": harness.model,
+            "ready": harness.configured,
+            "local": False,
+            "note": "Hosted LPU. No local install, but every call pays a network round trip.",
+        },
+        "ollama": {
+            "id": "ollama",
+            "label": "Local (Ollama)",
+            "model": OLLAMA_MODEL,
+            "ready": "ollama" in available,
+            "local": True,
+            "models_present": models,
+            "detail": detail,
+            "install_url": "https://ollama.com/download",
+            "pull_command": f"ollama pull {OLLAMA_MODEL}",
+            "note": (
+                "Runs on your own machine. Measured here at 82ms TTFT against "
+                "Groq's 438ms, because there is no network hop -- but it is a 3B "
+                "model rather than a 20B one, and it needs a GPU to be quick."
+            ),
+        },
+    }
 
 
 @app.get("/api/stats")

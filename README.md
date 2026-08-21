@@ -79,6 +79,23 @@ text ───▶ translate ──────┘         │                   
 Both guardrails short-circuit, so a blocked or ungrounded request never reaches
 the model and spends no tokens.
 
+**Voice out as well as in.** An answer can be spoken back through Sarvam
+bulbul, in the language it was answered in. A question asked by voice is
+answered aloud by default; a typed one is not, because reading the screen is
+not asking for sound and synthesis costs a round trip. Both are a button next
+to the answer. Bulbul rather than the browser's `speechSynthesis` because
+Hindi and Tamil voices are absent on most Windows installs, so the two
+languages this project exists for would fall back to an English voice reading
+Devanagari.
+
+**The model backend is a switch, not a rebuild.** Groq is the default and what
+a deployment uses. If Ollama is running locally with the model pulled, the
+header offers it and generation moves to your own machine: measured at 82ms to
+first token against Groq's 438ms, because there is no network hop. The switch
+appears only when the backend can actually answer -- installed, running and
+model present are three different things -- and says how to fix it when it
+cannot.
+
 **One English vector space.** MSMARCO-XI is a parallel corpus, so English is
 embedded once and the Hindi and Tamil passages ride along as display payloads.
 `bge-small-en-v1.5` has an English wordpiece vocabulary — Devanagari and Tamil

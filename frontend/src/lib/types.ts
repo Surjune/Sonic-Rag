@@ -20,6 +20,7 @@ export interface LatencyBreakdown {
   guardrail_grounding?: number
   llm?: number
   llm_ttft?: number
+  tts?: number
   total: number
 }
 
@@ -30,6 +31,37 @@ export interface ContextHit {
   display_text: string
   is_selected: boolean
   above_threshold: boolean
+}
+
+export interface SpeakResponse {
+  audio_base64: string
+  format: string
+  language: Language
+  model: string
+  speaker: string
+  characters: number
+  truncated: boolean
+  latency: Record<string, number>
+}
+
+export interface ProviderInfo {
+  id: string
+  label: string
+  model: string
+  ready: boolean
+  local: boolean
+  note: string
+  detail?: string
+  models_present?: string[]
+  install_url?: string
+  pull_command?: string
+}
+
+export interface ProvidersResponse {
+  default: string
+  available: string[]
+  groq: ProviderInfo
+  ollama: ProviderInfo
 }
 
 export interface QueryResponse {
@@ -50,6 +82,9 @@ export interface QueryResponse {
   threshold?: number
   contexts?: ContextHit[]
   model?: string
+  provider?: string
+  /** Set when the input was a greeting answered without retrieval. */
+  small_talk?: string
   within_budget?: boolean
   latency: LatencyBreakdown
 }

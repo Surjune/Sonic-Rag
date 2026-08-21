@@ -11,11 +11,13 @@ import {
   Send,
   ShieldAlert,
   Square,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Orb } from '../components/Orb'
 import { Badge, Metric, Panel, ScoreMeter, SectionTitle } from '../components/ui'
-import { ApiError, postQuery, streamVoice } from '../lib/api'
+import { ApiError, audioUrlFromBase64, postQuery, speak, streamVoice } from '../lib/api'
 import { startRecording, type RecorderHandle } from '../lib/audio'
 import type { Language, LatencySample, PipelineState, QueryResponse } from '../lib/types'
 
@@ -38,9 +40,11 @@ const STATE_LABEL: Record<PipelineState, string> = {
 interface PlaygroundProps {
   threshold: number
   onSample: (sample: LatencySample) => void
+  /** Generation backend chosen in the header: "groq" or "ollama". */
+  provider: string
 }
 
-export function Playground({ threshold, onSample }: PlaygroundProps) {
+export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
   const [state, setState] = useState<PipelineState>('idle')
   const [level, setLevel] = useState(0)
   const [text, setText] = useState('')
@@ -49,15 +53,83 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [contextsOpen, setContextsOpen] = useState(true)
 
+  // Speech output. `autoSpeak` decides whether a *voice* question is answered
+  // aloud; a typed question never is, whatever this says, because reading the
+  // screen is not asking for sound.
+  const [autoSpeak, setAutoSpeak] = useState(() => {
+    try {
+      return localStorage.getItem('sonic-rag.autoSpeak') !== 'off'
+    } catch {
+      return true
+    }
+  })
+  const [speaking, setSpeaking] = useState(false)
+  const [speechLoading, setSpeechLoading] = useState(false)
+  const [speechError, setSpeechError] = useState<string | null>(null)
+
   const recorder = useRef<RecorderHandle | null>(null)
   const animationFrame = useRef<number | null>(null)
+  const audio = useRef<HTMLAudioElement | null>(null)
+  const audioUrl = useRef<string | null>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sonic-rag.autoSpeak', autoSpeak ? 'on' : 'off')
+    } catch {
+      // A browser refusing storage is not a reason to break playback.
+    }
+  }, [autoSpeak])
+
+  /** Stop playback and release the object URL, which the browser will not. */
+  const stopSpeech = useCallback(() => {
+    audio.current?.pause()
+    audio.current = null
+    if (audioUrl.current) {
+      URL.revokeObjectURL(audioUrl.current)
+      audioUrl.current = null
+    }
+    setSpeaking(false)
+  }, [])
+
+  const playSpeech = useCallback(
+    async (text: string, lang: Language) => {
+      stopSpeech()
+      setSpeechError(null)
+      setSpeechLoading(true)
+      try {
+        const result = await speak(text, lang)
+        const url = audioUrlFromBase64(result.audio_base64)
+        audioUrl.current = url
+        const element = new Audio(url)
+        audio.current = element
+        element.onended = stopSpeech
+        element.onerror = () => {
+          setSpeechError('Playback failed')
+          stopSpeech()
+        }
+        setSpeaking(true)
+        await element.play()
+      } catch (error) {
+        // Speech is an extra, so a failure here must not disturb the answer
+        // that is already on screen.
+        setSpeechError(
+          error instanceof ApiError ? `${error.code}: ${error.message}` : 'Could not synthesize audio',
+        )
+        setSpeaking(false)
+      } finally {
+        setSpeechLoading(false)
+      }
+    },
+    [stopSpeech],
+  )
 
   useEffect(() => {
     return () => {
       if (animationFrame.current !== null) cancelAnimationFrame(animationFrame.current)
       recorder.current?.cancel()
+      stopSpeech()
     }
-  }, [])
+  }, [stopSpeech])
 
   const settle = useCallback(
     (result: QueryResponse, kind: 'text' | 'voice') => {
@@ -94,12 +166,13 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
     try {
       const result = await postQuery(query, {
         language: language === 'auto' ? null : language,
+        provider,
       })
       settle(result, 'text')
     } catch (error) {
       fail(error)
     }
-  }, [text, language, settle, fail])
+  }, [text, language, settle, fail, provider])
 
   const pollLevel = useCallback(() => {
     const handle = recorder.current
@@ -180,6 +253,12 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
             } as QueryResponse
             setResponse(final)
             setState(data.grounded ? 'grounded' : 'refused')
+            // The question was spoken, so the answer is spoken back unless
+            // the user has turned that off. Synthesis starts only once the
+            // full text exists -- bulbul takes text, not a token stream.
+            if (autoSpeak && answer.trim()) {
+              void playSpeech(answer.trim(), (final.language ?? 'en') as Language)
+            }
             onSample({
               at: Date.now(),
               kind: 'voice',
@@ -205,7 +284,20 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
     } catch (error) {
       fail(error)
     }
-  }, [language, fail, onSample])
+  }, [language, fail, onSample, autoSpeak, playSpeech])
+
+  // Only real prose is worth speaking. A blocked request's message is UI
+  // copy, not an answer, and reading it aloud would be odd.
+  const speakableText = response && !response.blocked ? (response.answer || '').trim() : ''
+
+  const toggleSpeech = useCallback(async () => {
+    if (speaking) {
+      stopSpeech()
+      return
+    }
+    if (!speakableText) return
+    await playSpeech(speakableText, (response?.language ?? 'en') as Language)
+  }, [speaking, speakableText, response, playSpeech, stopSpeech])
 
   const busy = state === 'processing'
   const recording = state === 'listening'
@@ -344,8 +436,69 @@ export function Playground({ threshold, onSample }: PlaygroundProps) {
             <Panel className="p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <SectionTitle title="Answer" />
+
+                {/*
+                  Speech output sits next to the label rather than under the
+                  text, because it is an action on the answer. Voice questions
+                  autoplay it; typed questions do not, since somebody reading
+                  the screen did not ask for sound and it costs a round trip.
+                */}
+                <button
+                  type="button"
+                  onClick={() => void toggleSpeech()}
+                  disabled={!speakableText}
+                  title={
+                    speechError
+                      ? speechError
+                      : speaking
+                        ? 'Stop'
+                        : 'Play this answer aloud'
+                  }
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-wider uppercase transition disabled:opacity-40 ${
+                    speechError
+                      ? 'border-rose-400/40 text-rose-200/80'
+                      : 'border-white/15 text-emerald-100/70 hover:border-white/30 hover:text-emerald-100'
+                  }`}
+                >
+                  {speechLoading ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : speaking ? (
+                    <Square size={12} />
+                  ) : (
+                    <Volume2 size={12} />
+                  )}
+                  {speechLoading ? 'loading' : speaking ? 'stop' : 'listen'}
+                </button>
+
+                {/*
+                  Autoplay is a preference, not a mode: a user who asked by
+                  voice usually wants the reply spoken, but not always, and
+                  the choice should survive the next question.
+                */}
+                <button
+                  type="button"
+                  onClick={() => setAutoSpeak((on) => !on)}
+                  title={
+                    autoSpeak
+                      ? 'Voice questions are answered aloud. Click to stop that.'
+                      : 'Voice questions are answered in text only. Click to hear them.'
+                  }
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] tracking-wider uppercase transition ${
+                    autoSpeak
+                      ? 'border-emerald-300/40 text-emerald-200'
+                      : 'border-white/15 text-emerald-100/40 hover:text-emerald-100/70'
+                  }`}
+                >
+                  {autoSpeak ? <Volume2 size={12} /> : <VolumeX size={12} />}
+                  auto
+                </button>
+
                 {response.blocked ? (
                   <Badge tone="rose">{response.code ?? 'BLOCKED'}</Badge>
+                ) : response.small_talk ? (
+                  // Not retrieved and not refused: answered before the pipeline
+                  // ran. Calling it GROUNDED would claim a passage backs it.
+                  <Badge tone="cyan">DIRECT</Badge>
                 ) : response.model_refused ? (
                   // Retrieval cleared the threshold but the model still found
                   // the passages unusable. Showing GROUNDED here would

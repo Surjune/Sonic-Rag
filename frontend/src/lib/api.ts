@@ -2,6 +2,8 @@
 
 import type {
   AuditResponse,
+  ProvidersResponse,
+  SpeakResponse,
   CompareResponse,
   HealthResponse,
   Language,
@@ -65,6 +67,7 @@ export async function postQuery(
     topK?: number
     generate?: boolean
     useTools?: boolean
+    provider?: string | null
   } = {},
 ): Promise<QueryResponse> {
   const response = await fetch(`${BASE}/api/query`, {
@@ -76,6 +79,7 @@ export async function postQuery(
       top_k: options.topK ?? 5,
       generate: options.generate ?? true,
       use_tools: options.useTools ?? false,
+      provider: options.provider ?? null,
     }),
   })
   return parse<QueryResponse>(response)
@@ -207,7 +211,7 @@ export async function streamVoice(
 export async function streamQuery(
   query: string,
   handlers: SseHandlers,
-  options: { language?: Language | null; topK?: number } = {},
+  options: { language?: Language | null; topK?: number; provider?: string | null } = {},
 ): Promise<void> {
   await consumeSse(
     await fetch(`${BASE}/api/query/stream`, {
@@ -217,8 +221,38 @@ export async function streamQuery(
         query,
         language: options.language ?? null,
         top_k: options.topK ?? 5,
+        provider: options.provider ?? null,
       }),
     }),
     handlers,
   )
+}
+
+/** Which generation backends this deployment can actually reach right now. */
+export async function getProviders(): Promise<ProvidersResponse> {
+  return parse<ProvidersResponse>(await fetch(`${BASE}/api/providers`))
+}
+
+/**
+ * Synthesize an answer as speech.
+ *
+ * Called only when the user wants audio, never automatically for typed input:
+ * it costs a round trip and Sarvam quota, and most answers are read rather
+ * than played.
+ */
+export async function speak(text: string, language: Language): Promise<SpeakResponse> {
+  const response = await fetch(`${BASE}/api/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, language }),
+  })
+  return parse<SpeakResponse>(response)
+}
+
+/** Decode base64 WAV into a playable object URL. */
+export function audioUrlFromBase64(base64: string): string {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
 }
