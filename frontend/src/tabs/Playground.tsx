@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Square,
   Volume2,
+  Zap,
   VolumeX,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -19,7 +20,13 @@ import { Orb } from '../components/Orb'
 import { Badge, Metric, Panel, ScoreMeter, SectionTitle } from '../components/ui'
 import { ApiError, audioUrlFromBase64, postQuery, speak, streamVoice } from '../lib/api'
 import { startRecording, type RecorderHandle } from '../lib/audio'
-import type { Language, LatencySample, PipelineState, QueryResponse } from '../lib/types'
+import type {
+  Language,
+  LatencySample,
+  PipelineState,
+  ProvidersResponse,
+  QueryResponse,
+} from '../lib/types'
 
 const LANGUAGES: { value: Language | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -42,9 +49,18 @@ interface PlaygroundProps {
   onSample: (sample: LatencySample) => void
   /** Generation backend chosen in the header: "groq" or "ollama". */
   provider: string
+  /** Lets the latency hint switch backends without hunting for the header. */
+  onProviderChange: (provider: string) => void
+  providers: ProvidersResponse | null
 }
 
-export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
+export function Playground({
+  threshold,
+  onSample,
+  provider,
+  onProviderChange,
+  providers,
+}: PlaygroundProps) {
   const [state, setState] = useState<PipelineState>('idle')
   const [level, setLevel] = useState(0)
   const [text, setText] = useState('')
@@ -316,6 +332,11 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
     await playSpeech(speakableText, (response?.language ?? 'en') as Language)
   }, [speaking, speakableText, response, playSpeech, stopSpeech])
 
+  // True only while the offer is real: a faster backend is ready, something
+  // slower is answering, and the user has not already acted on it.
+  const showLatencyHint =
+    provider !== 'ollama' && Boolean(providers?.ollama.ready)
+
   const busy = state === 'processing'
   const recording = state === 'listening'
   const latency = response?.latency
@@ -357,7 +378,31 @@ export function Playground({ threshold, onSample, provider }: PlaygroundProps) {
                 {STATE_LABEL[state]}
               </span>
             </div>
-            {response?.model && <Badge tone="cyan">{response.model}</Badge>}
+            {/*
+              Sits level with the pipeline state, over the visualizer, because
+              that is where someone is already looking while they wait. Next to
+              the provider switch it was competing with the header's own noise
+              and being missed entirely.
+
+              Offered only when it is both true and actionable: the faster
+              backend is ready, is not the one answering, and nobody has taken
+              the hint yet. It retires once local is chosen, so it reads as an
+              offer rather than a permanent ornament.
+            */}
+            <div className="pointer-events-auto flex items-center gap-2">
+              {showLatencyHint && (
+                <button
+                  type="button"
+                  onClick={() => onProviderChange('ollama')}
+                  title="Answer on this machine instead, with no network round trip"
+                  className="flex items-center gap-1.5 rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2.5 py-1 font-mono text-[10px] tracking-wider text-emerald-200 uppercase shadow-lg backdrop-blur-sm transition hover:bg-emerald-300/20"
+                >
+                  <Zap size={11} className="animate-pulse" />
+                  for lower latency use local · &lt;200ms
+                </button>
+              )}
+              {response?.model && <Badge tone="cyan">{response.model}</Badge>}
+            </div>
           </div>
 
           {/* Latency HUD */}

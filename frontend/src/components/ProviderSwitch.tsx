@@ -1,6 +1,12 @@
 /**
  * Choose which model answers: hosted Groq, or one running on this machine.
  *
+ * The prompt to switch does not live here. It sits over the visualizer, level
+ * with the pipeline state, because that is where someone is already looking
+ * while they wait for an answer -- beside this control it competed with the
+ * header's own noise and went unread. This is where the choice is made and
+ * explained, not where it is advertised.
+ *
  * The two options are a genuine trade rather than a good and a bad choice, so
  * the control says what each costs. Groq needs nothing installed and pays a
  * network round trip on every question; local answers roughly five times
@@ -123,37 +129,6 @@ export function ProviderSwitch({ providers, value, onChange, onRefresh }: Provid
           )
         })}
       </div>
-
-      {/*
-        The reason to care, on the control itself. A switch labelled only
-        "groq / local" says nothing about why anyone would move it, and the
-        thing worth knowing is the number. Shown only while local is unused,
-        so it reads as an offer rather than a permanent ornament.
-      */}
-      {unnoticed && localReady && (
-        <button
-          type="button"
-          onClick={() => {
-            onChange('ollama')
-            markSeen()
-          }}
-          className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
-        >
-          &lt;200ms
-        </button>
-      )}
-      {unnoticed && !localReady && canPull && (
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(true)
-            markSeen()
-          }}
-          className="animate-pulse rounded-md border border-emerald-300/45 bg-emerald-300/10 px-1.5 py-1 font-mono text-[9px] tracking-wider whitespace-nowrap text-emerald-200 uppercase transition hover:bg-emerald-300/20"
-        >
-          get &lt;200ms
-        </button>
-      )}
 
       <button
         type="button"

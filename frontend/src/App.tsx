@@ -203,7 +203,13 @@ export default function App() {
             className="h-full"
           >
             {tab === 'playground' && (
-              <Playground threshold={threshold} onSample={addSample} provider={provider} />
+              <Playground
+                threshold={threshold}
+                onSample={addSample}
+                provider={provider}
+                onProviderChange={setProvider}
+                providers={providers}
+              />
             )}
             {tab === 'analytics' && (
               <Analytics samples={samples} onClear={() => setSamples([])} />
