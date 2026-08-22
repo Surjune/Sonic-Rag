@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pickle
+import sqlite3
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -37,6 +39,7 @@ from fastembed import TextEmbedding
 from app.chunking import NATIVE_PASSAGE_KEY, chunk_row, normalize
 from app.config import (
     ARTIFACT_DIR,
+    CHUNK_DB_PATH,
     DATA_DIR,
     EMBED_BATCH_SIZE,
     EMBEDDING_DIM,
@@ -44,6 +47,7 @@ from app.config import (
     HNSW_EF_CONSTRUCTION,
     HNSW_EF_SEARCH,
     HNSW_M,
+    INDEX_QUANTIZED,
     INDEX_PATH,
     LANG_FILES,
     METADATA_PATH,
@@ -62,6 +66,14 @@ class IndexedChunk:
     parent_english: str  # full English passage, for LLM context
     translations: dict[str, str] = field(default_factory=dict)  # lang -> native passage
     is_selected: bool = False
+
+
+# Field names accepted when rebuilding from a pickle, so a payload carrying
+# extra keys from a future build still converts instead of raising.
+FIELDS = {
+    "chunk_id", "parent_id", "query_id", "passage_index",
+    "text_english", "parent_english", "translations", "is_selected",
+}
 
 
 def _read_rows(path: Path, limit: int) -> Iterator[dict[str, Any]]:
@@ -203,33 +215,119 @@ def embed_texts(texts: Sequence[str]) -> np.ndarray:
     return vectors
 
 
-def build_index(vectors: np.ndarray) -> faiss.IndexHNSWFlat:
-    """Build an HNSW graph over normalized vectors (O(log N) search)."""
-    index = faiss.IndexHNSWFlat(EMBEDDING_DIM, HNSW_M, faiss.METRIC_INNER_PRODUCT)
+def build_index(vectors: np.ndarray, *, quantized: bool = INDEX_QUANTIZED) -> faiss.Index:
+    """Build an HNSW graph over normalized vectors (O(log N) search).
+
+    With `quantized`, vectors are stored as int8 through a scalar quantiser --
+    a third of the file size for a measured 99.7% identical top-1 result. The
+    quantiser needs a training pass over the vectors before anything is added.
+    """
+    if quantized:
+        index: faiss.Index = faiss.IndexHNSWSQ(
+            EMBEDDING_DIM, faiss.ScalarQuantizer.QT_8bit, HNSW_M, faiss.METRIC_INNER_PRODUCT
+        )
+    else:
+        index = faiss.IndexHNSWFlat(EMBEDDING_DIM, HNSW_M, faiss.METRIC_INNER_PRODUCT)
     index.hnsw.efConstruction = HNSW_EF_CONSTRUCTION
     index.hnsw.efSearch = HNSW_EF_SEARCH
 
     started = time.perf_counter()
+    if quantized:
+        index.train(vectors)
     index.add(vectors)
-    print(f"  built HNSW over {index.ntotal:,} vectors in {time.perf_counter() - started:.1f}s")
+    kind = "HNSW+SQ8" if quantized else "HNSW"
+    print(f"  built {kind} over {index.ntotal:,} vectors in {time.perf_counter() - started:.1f}s")
     return index
 
 
+def write_chunk_db(payloads: Sequence[IndexedChunk], meta: dict[str, Any]) -> None:
+    """Write chunk payloads to SQLite, keyed by FAISS position.
+
+    The pickle this replaces had to be unpacked whole to serve the five chunks
+    a search returns -- 516MB of Python dicts resident for the lifetime of the
+    process. Here the rows stay on disk and a lookup costs 0.089ms, which is
+    nothing against a 54ms retrieval and is the difference between fitting a
+    512MB host and not.
+
+    `pos` is the primary key and therefore the rowid, so a hit maps straight to
+    a B-tree lookup with no secondary index to build or carry.
+    """
+    if CHUNK_DB_PATH.exists():
+        CHUNK_DB_PATH.unlink()
+
+    connection = sqlite3.connect(str(CHUNK_DB_PATH))
+    try:
+        # This file is written once and then only read. Durability settings
+        # that protect against a crash mid-write buy nothing and cost minutes.
+        connection.execute("PRAGMA journal_mode=OFF")
+        connection.execute("PRAGMA synchronous=OFF")
+        connection.execute(
+            """CREATE TABLE chunk (
+                 pos INTEGER PRIMARY KEY,
+                 chunk_id TEXT NOT NULL,
+                 parent_id TEXT NOT NULL,
+                 query_id INTEGER NOT NULL,
+                 passage_index INTEGER NOT NULL,
+                 is_selected INTEGER NOT NULL,
+                 text_english TEXT NOT NULL,
+                 parent_english TEXT NOT NULL,
+                 hi TEXT,
+                 ta TEXT
+               )"""
+        )
+        connection.execute("CREATE TABLE meta (id INTEGER PRIMARY KEY, json TEXT NOT NULL)")
+        connection.executemany(
+            "INSERT INTO chunk VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                (
+                    position,
+                    chunk.chunk_id,
+                    chunk.parent_id,
+                    chunk.query_id,
+                    chunk.passage_index,
+                    int(chunk.is_selected),
+                    chunk.text_english,
+                    chunk.parent_english,
+                    chunk.translations.get("hi"),
+                    chunk.translations.get("ta"),
+                )
+                for position, chunk in enumerate(payloads)
+            ),
+        )
+        connection.execute("INSERT INTO meta VALUES (1, ?)", (json.dumps(meta),))
+        connection.commit()
+        # Without this the file keeps the free pages the build left behind.
+        connection.execute("VACUUM")
+    finally:
+        connection.close()
+
+
 def save_artifacts(
-    index: faiss.Index, payloads: Sequence[IndexedChunk], meta: dict[str, Any]
+    index: faiss.Index,
+    payloads: Sequence[IndexedChunk],
+    meta: dict[str, Any],
+    *,
+    write_pickle: bool = False,
 ) -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(INDEX_PATH))
-    with METADATA_PATH.open("wb") as handle:
-        pickle.dump(
-            {"chunks": [asdict(p) for p in payloads], "meta": meta},
-            handle,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
+    write_chunk_db(payloads, meta)
+
+    # The pickle is no longer the runtime format and is off by default; it is
+    # kept behind a flag only so an older deployment can still be produced.
+    if write_pickle:
+        with METADATA_PATH.open("wb") as handle:
+            pickle.dump(
+                {"chunks": [asdict(p) for p in payloads], "meta": meta},
+                handle,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
 
     index_mb = INDEX_PATH.stat().st_size / 1e6
-    meta_mb = METADATA_PATH.stat().st_size / 1e6
-    print(f"  wrote {INDEX_PATH.name} ({index_mb:.1f} MB) + {METADATA_PATH.name} ({meta_mb:.1f} MB)")
+    db_mb = CHUNK_DB_PATH.stat().st_size / 1e6
+    print(f"  wrote {INDEX_PATH.name} ({index_mb:.1f} MB) + {CHUNK_DB_PATH.name} ({db_mb:.1f} MB)")
+    if write_pickle:
+        print(f"  wrote {METADATA_PATH.name} ({METADATA_PATH.stat().st_size / 1e6:.1f} MB)")
 
 
 def _smoke_test(index: faiss.Index, payloads: Sequence[IndexedChunk]) -> None:
@@ -266,7 +364,62 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Build the Sonic-RAG FAISS index.")
     parser.add_argument("--rows", type=int, default=250, help="rows to ingest")
+    parser.add_argument(
+        "--from-pickle",
+        action="store_true",
+        help="convert an existing metadata.pkl to chunks.db and stop; no "
+        "embedding, so this takes seconds rather than hours",
+    )
+    parser.add_argument(
+        "--quantize",
+        action="store_true",
+        help="rewrite the existing index with int8 vectors and stop; no "
+        "embedding, so this takes about a minute rather than hours",
+    )
+    parser.add_argument(
+        "--write-pickle",
+        action="store_true",
+        help="also emit the legacy metadata.pkl alongside chunks.db",
+    )
     args = parser.parse_args()
+
+    if args.quantize:
+        # The vectors already exist on disk; re-embedding to change their
+        # storage type would cost hours for no new information.
+        if not INDEX_PATH.exists():
+            print(f"[FAIL] {INDEX_PATH} not found")
+            return 1
+        print(f"reading {INDEX_PATH.name}...", flush=True)
+        flat = faiss.read_index(str(INDEX_PATH))
+        before_mb = INDEX_PATH.stat().st_size / 1e6
+        print(f"  {flat.ntotal:,} vectors, {before_mb:.0f} MB")
+        vectors = flat.reconstruct_n(0, flat.ntotal)
+        index = build_index(vectors, quantized=True)
+        faiss.write_index(index, str(INDEX_PATH))
+        after_mb = INDEX_PATH.stat().st_size / 1e6
+        print(f"  wrote {INDEX_PATH.name} ({after_mb:.0f} MB, was {before_mb:.0f} MB)")
+        return 0
+
+    if args.from_pickle:
+        # Re-embedding to change a storage format would be absurd: the vectors
+        # are unchanged and already on disk. This reads the payloads the last
+        # build produced and rewrites them as SQLite.
+        if not METADATA_PATH.exists():
+            print(f"[FAIL] {METADATA_PATH} not found")
+            return 1
+        print(f"reading {METADATA_PATH.name}...", flush=True)
+        with METADATA_PATH.open("rb") as handle:
+            payload = pickle.load(handle)
+        chunks = [IndexedChunk(**{k: v for k, v in c.items() if k in FIELDS}) for c in payload["chunks"]]
+        print(f"  {len(chunks):,} chunks")
+        print("writing chunks.db...", flush=True)
+        started = time.perf_counter()
+        write_chunk_db(chunks, payload.get("meta", {}))
+        print(
+            f"  wrote {CHUNK_DB_PATH.name} "
+            f"({CHUNK_DB_PATH.stat().st_size / 1e6:.0f} MB) in {time.perf_counter() - started:.1f}s"
+        )
+        return 0
 
     print(f"model : {EMBEDDING_MODEL}")
     print(f"rows  : {args.rows:,}  (English vector space, hi/ta attached)\n")
@@ -297,6 +450,7 @@ def main() -> int:
             "hnsw_m": HNSW_M,
             "ef_search": HNSW_EF_SEARCH,
         },
+        write_pickle=args.write_pickle,
     )
 
     _smoke_test(index, payloads)

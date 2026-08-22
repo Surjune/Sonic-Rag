@@ -14,7 +14,7 @@ found.
 The prebuilt FAISS index is **downloaded automatically by the setup script**
 from a GitHub Release, so there is **no dataset download and no index
 rebuild** — the embedding pass takes 5.4 hours and nobody evaluating this
-project should have to run it. Setup is dependencies, a ~781MB artifact
+project should have to run it. Setup is dependencies, a ~769MB artifact
 download, and two API keys.
 
 ```bash
@@ -113,11 +113,11 @@ bottleneck.
 
 | Stage | P50 | P70 | P95 | P100 |
 | --- | ---: | ---: | ---: | ---: |
-| Input guardrail | 0.03ms | 0.03ms | 0.04ms | 0.23ms |
-| Embedding | 53.30ms | 54.69ms | 59.61ms | 62.14ms |
-| **FAISS search** | **0.38ms** | 0.43ms | 0.54ms | 1.04ms |
+| Input guardrail | 0.03ms | 0.03ms | 0.04ms | 0.05ms |
+| Embedding | 47.22ms | 49.31ms | 55.27ms | 58.41ms |
+| **FAISS search** | **1.16ms** | 1.25ms | 1.51ms | 1.81ms |
 | Grounding check | 0.01ms | 0.01ms | 0.01ms | 0.02ms |
-| **Retrieval total** | **53.80ms** | **55.23ms** | **60.11ms** | 62.73ms |
+| **Retrieval total** | **48.41ms** | **50.57ms** | **56.35ms** | 59.72ms |
 
 - **Injection blocked: 0.02ms P50** — refused before any embedding or network call
 - **Ungrounded refusal: 54.97ms P50** — no model call, no tokens spent
@@ -125,13 +125,13 @@ bottleneck.
 - **Typed Tamil retrieval: 318.97ms P50** (translation hop 258.98ms P50)
 
 **Index size barely moves retrieval.** Growing the index 37x, from 5,289 to
-194,904 vectors, moved FAISS search from 0.22ms to 0.38ms P50 and left total
-retrieval flat at ~54ms. Embedding is a fixed-cost forward pass that does not
+194,904 vectors, moved FAISS search from 0.22ms to about 1.2ms P50 and left
+total retrieval under 50ms. Embedding is a fixed-cost forward pass that does not
 care how large the index is, and HNSW search is logarithmic in it, so neither
 scales the way intuition suggests. What grows instead is startup and memory:
-781MB of artifacts, **4.6s cold start** (unpickling 445MB of chunk payloads
-plus the ONNX warmup) and **~1.06GB resident**. Those are the figures that
-decide whether a host can run this, not the per-query numbers.
+769MB of artifacts and startup work. Those are the figures that decide whether
+a host can run this, not the per-query numbers -- and they are what the
+memory-footprint section below is about.
 
 **Full pipeline, including generation** (n=18 of 20; the other two hit a Groq
 free-tier 429 mid-run, not a pipeline fault):
@@ -229,6 +229,85 @@ Reproduce with `python compare_providers.py` (needs Ollama running and
 Reproduce with `python benchmark.py --queries 100 --generation-samples 20`
 (close the browser first — the WebGL canvas competes for CPU with the process
 being measured).
+
+---
+
+## Memory footprint
+
+The backend held **1,084MB resident**, which is more than every free hosting
+tier that does not want a credit card. Three changes took it to **338MB**
+without giving up a single vector, and made retrieval faster rather than
+slower.
+
+| | Before | After |
+| --- | ---: | ---: |
+| Resident memory | 1,084MB | **338MB** |
+| Retrieval P50 | 53.80ms | **48.41ms** |
+| Embedding P50 | 53.30ms | **47.22ms** |
+| FAISS P50 | 0.38ms | 1.16ms |
+| Vectors | 194,904 | 194,904 |
+
+**One ONNX thread, not the default.** A single short query through a
+33M-parameter model is too small to parallelise, but ONNX sizes its thread
+pool from the host's core count -- so on a shared vCPU those threads contend
+for one core. Measured with the process pinned to a single core:
+
+```
+threads    p50       p95
+default    223.2ms   1224.1ms
+1           47.4ms     49.9ms   <- chosen
+2           85.3ms    160.5ms
+4          181.7ms    501.0ms
+```
+
+The p95 is the part that matters: one request in twenty spending over a second
+inside embedding reads as an unreliable deployment, not a thread-pool default.
+It is faster on a 16-core machine too, 51.5ms to 43.6ms.
+
+**Chunk payloads in SQLite, not a pickle.** Only `top_k` chunks are read per
+request, but the pickle was unpacked whole to serve five of them -- 516MB of
+Python dicts resident for the life of the process. Keyed by FAISS position, a
+lookup costs 0.089ms against 0.001ms for a list index, which is nothing beside
+50ms of embedding, and frees 486MB. `python -m app.indexer --from-pickle`
+converts an existing artifact set in about four seconds; no re-embedding.
+
+**int8 vectors.** A scalar quantiser takes the index from 336MB to 122MB.
+It is an approximation, so it was measured: **99.2% top-5 overlap and 99.7%
+identical top-1** against float32 over 300 queries, and scores shift by less
+than 0.001, so the 0.68 threshold behaves identically -- verified as the same
+7/7 genuine queries kept and the same 3/5 unanswerable refused. Search slows
+from 0.261ms to 0.718ms, a large multiple of a number too small to matter.
+`--quantize` rewrites an existing index in about a minute.
+
+Both conversions are opt-in (`INDEX_QUANTIZED`, and the presence of
+`chunks.db`), and the pickle path still loads, so an older artifact set keeps
+working rather than refusing to start.
+
+---
+
+## Deploying
+
+`Dockerfile` and `render.yaml` target Render's free instance: 512MB RAM, no
+card, 750 instance hours a month, sleeping after 15 minutes idle. The three
+changes above are what make it fit, with roughly 174MB to spare.
+
+Three things in the Dockerfile are load-bearing and easy to undo by accident.
+Python is pinned to **3.12** because faiss-cpu publishes manylinux wheels for
+3.10-3.13 only, and 3.14 would try to build FAISS from source. The artifacts
+are **baked into the image** rather than fetched at boot, because a free
+instance sleeps and re-downloading 769MB on every wake would add minutes to an
+already unpleasant cold start. And the container runs **one worker**: a second
+would load its own copy of the index and double the memory on a host with none
+to spare.
+
+**Setup depends on this repository staying public** -- the image pulls the
+artifacts from a Release asset URL with no credentials, and a private
+repository answers those with a 404.
+
+Honest expectations. Render's free instance is a shared vCPU and its free
+region is in the US, so Sarvam -- India-hosted, and already the largest cost in
+the voice path -- gets further away while Groq gets closer. The sub-200ms
+figure in this README is a local-hardware result and does not survive the move.
 
 ---
 
@@ -427,10 +506,9 @@ frontend/
   passage falls in the remaining rows is refused as ungrounded, which looks
   identical to a failure from the outside. `python -m app.indexer --rows N`
   rebuilds it larger, at roughly 5.4 hours per 10,000 rows on a 10-core CPU.
-- **The artifacts are 781MB and cannot live in the repository.** GitHub hard
+- **The artifacts are 769MB and cannot live in the repository.** GitHub hard
   rejects files over 100MB, so they ship as Release assets that the setup
-  scripts fetch. Loading them costs ~1.06GB of RAM, which rules out the
-  512MB-and-under free tiers on several hosts.
+  scripts fetch.
 - **Setup depends on this repository staying public.** Release assets on a
   private repository return 404 to an unauthenticated download, so making it
   private again would break `setup.ps1` and `setup.sh` for everyone without

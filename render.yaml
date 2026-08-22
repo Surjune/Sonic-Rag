@@ -1,0 +1,54 @@
+# Render service definition.
+#
+# Keeping this in the repository rather than clicking through the dashboard
+# means the deployment is reviewable and reproducible: the health check path,
+# the thread count and the quantisation flag are all load-bearing, and none of
+# them are obvious from the outside.
+
+services:
+  - type: web
+    name: sonic-rag-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Render restarts an instance that fails this, so it has to answer while
+    # the index is loading rather than 404. /health returns "degraded" with
+    # index_loaded false instead of erroring, which is exactly right here.
+    healthCheckPath: /health
+
+    envVars:
+      # sync: false means "prompt me in the dashboard, do not store it here".
+      # Keys must never enter the repository or an image layer.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEY_BACKUP
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY_BACKUP
+        sync: false
+
+      # The frontend's origin. Without it the browser blocks every request,
+      # and the failure looks like the backend being down rather than a CORS
+      # rejection. Replace with the real Vercel URL before the first deploy.
+      - key: CORS_ORIGINS
+        value: https://www.lightninglogics.me,https://lightninglogics.me
+
+      # One ONNX thread. Measured on a single core: 47ms p50 against 223ms,
+      # and 50ms p95 against 1224ms, because the default pool is sized from
+      # the host's core count and then fights over one shared vCPU.
+      - key: EMBED_THREADS
+        value: "1"
+
+      # int8 vectors: 128MB rather than 336MB, for a measured 99.7% identical
+      # top-1 result. Without it the process needs ~553MB and the 512MB
+      # instance kills it.
+      - key: INDEX_QUANTIZED
+        value: "1"
+
+      # Groq's own default is 1024 and gpt-oss-20b is a reasoning model that
+      # will spend the whole budget thinking and return nothing if given less.
+      - key: LLM_TIMEOUT_MS
+        value: "700"

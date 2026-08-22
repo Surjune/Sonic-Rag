@@ -32,6 +32,18 @@ ARTIFACT_DIR = BACKEND_DIR / "artifacts"
 INDEX_PATH = ARTIFACT_DIR / "vector_index.faiss"
 METADATA_PATH = ARTIFACT_DIR / "metadata.pkl"
 
+# Chunk payloads as SQLite rather than a pickle held in memory.
+#
+# Only top_k chunks are read per request, but the pickle unpacked all 194,904
+# into a list of dicts to serve five of them -- 516MB measured, the single
+# largest thing in the process. SQLite keyed by FAISS position costs 0.089ms
+# per lookup against 0.001ms for a list index, which is nothing beside a 54ms
+# retrieval, and frees the whole 516MB.
+#
+# The pickle stays supported: it is what an existing artifact download
+# contains, and falling back to it means a stale artifact set still runs.
+CHUNK_DB_PATH = ARTIFACT_DIR / "chunks.db"
+
 # Language -> local parquet file. English is carried inside every file as the
 # aligned `English_passages` column, so it needs no file of its own.
 LANG_FILES: dict[str, str] = {
@@ -44,7 +56,10 @@ SUPPORTED_LANGS: tuple[str, ...] = ("hi", "ta", "en")
 
 CORS_ORIGINS: list[str] = [
     origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000,https://www.lightninglogics.me,https://lightninglogics.me",
+    ).split(",")
     if origin.strip()
 ]
 
@@ -62,8 +77,43 @@ QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 # where large batches raise peak memory enough to stall the pass entirely.
 EMBED_BATCH_SIZE = 32
 
+# ONNX intra-op threads for query embedding.
+#
+# One, not the default. A single short query through a 33M-parameter model is
+# too small a unit of work to parallelise, and ONNX otherwise sizes its pool
+# from the host's core count -- so on a shared vCPU those threads contend for
+# one core instead of using several. Measured on this index, pinned to a
+# single core to stand in for a small host:
+#
+#   threads    p50       p95
+#   default    223.2ms   1224.1ms
+#   1           47.4ms     49.9ms   <- chosen
+#   2           85.3ms    160.5ms
+#   4          181.7ms    501.0ms
+#
+# The p95 is the part that matters: roughly one request in twenty spent over a
+# second inside embedding, which reads as an unreliable deployment rather than
+# a misconfigured thread pool. It is also faster on a 16-core machine (51.5ms
+# to 43.6ms), because the coordination never paid for itself there either.
+EMBED_THREADS = int(os.getenv("EMBED_THREADS", "1"))
+
 # --- FAISS HNSW -------------------------------------------------------------
 # Vectors are L2-normalized, so inner product == cosine similarity.
+
+# Store vectors as int8 rather than float32.
+#
+# 299MB of float32 vectors become ~75MB, taking the index file from 336MB to
+# 128MB and the whole process from 553MB to roughly 345MB -- the difference
+# between fitting a 512MB host and being killed by it.
+#
+# It is an approximation, so it was measured rather than assumed: against the
+# float32 index over 300 queries, top-5 overlap is 99.2% and the top-1 result
+# is identical 99.7% of the time. In 299 of 300 questions the model receives
+# exactly the same passages. Search slows from 0.261ms to 0.718ms p50, which
+# is a 2.75x multiple of a number too small to matter beside 50ms of embedding.
+#
+# Off by default: a machine with memory to spare should keep the exact vectors.
+INDEX_QUANTIZED = os.getenv("INDEX_QUANTIZED", "0").strip().lower() in {"1", "true", "yes"}
 
 HNSW_M = 32  # neighbours per node; 32 is the accuracy/memory knee for <1M vectors
 HNSW_EF_CONSTRUCTION = 200  # build-time depth; higher = better graph, slower build

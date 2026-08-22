@@ -71,7 +71,7 @@ Step 'Index artifacts'
 $artifactDir = Join-Path $root 'backend\artifacts'
 New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
 
-foreach ($asset in @('vector_index.faiss', 'metadata.pkl')) {
+foreach ($asset in @('vector_index.faiss', 'chunks.db')) {
   $target = Join-Path $artifactDir $asset
   if (Test-Path $target) { Ok "$asset already present"; continue }
   Write-Host "  downloading $asset from the $INDEX_RELEASE_TAG release..."

@@ -25,6 +25,7 @@ dist/
 !.env.example
 
 # --- Generated vector index & data artifacts ---
+*.db
 *.faiss
 vector_index.faiss
 metadata.pkl

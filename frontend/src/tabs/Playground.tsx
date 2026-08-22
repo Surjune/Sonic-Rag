@@ -427,10 +427,10 @@ export function Playground({
           {/* Latency HUD */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4">
             <div className="panel grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg px-3 py-2 sm:grid-cols-6 md:px-4 md:py-3">
-              <Metric className="hidden sm:block" label="STT" value={latency?.stt} />
-              <Metric className="hidden sm:block" label="Embed" value={latency?.embed} />
-              <Metric className="hidden sm:block" label="FAISS" value={latency?.faiss} budgetMs={5} />
-              <Metric className="hidden sm:block" label="Model TTFT" value={latency?.llm_ttft} />
+              <Metric className="hidden sm:flex" label="STT" value={latency?.stt} />
+              <Metric className="hidden sm:flex" label="Embed" value={latency?.embed} />
+              <Metric className="hidden sm:flex" label="FAISS" value={latency?.faiss} budgetMs={5} />
+              <Metric className="hidden sm:flex" label="Model TTFT" value={latency?.llm_ttft} />
               {/*
                 The latency figure: request in, first token out. Everything
                 after it is the answer still arriving, which the reader is

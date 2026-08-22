@@ -63,7 +63,7 @@ step 'Index artifacts'
 artifact_dir="$root/backend/artifacts"
 mkdir -p "$artifact_dir"
 
-for asset in vector_index.faiss metadata.pkl; do
+for asset in vector_index.faiss chunks.db; do
   target="$artifact_dir/$asset"
   if [ -f "$target" ]; then
     ok "$asset already present"

@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import (
+    BACKEND_DIR,
     CONNECT_TIMEOUT_S,
     CORS_ORIGINS,
     OLLAMA_API_URL,
@@ -182,7 +183,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -1093,3 +1094,12 @@ async def stats() -> dict[str, Any]:
         "threshold": SIMILARITY_THRESHOLD,
         "supported_languages": list(SUPPORTED_LANGS),
     }
+
+
+# If the frontend was built into dist (e.g. in the multi-stage Docker build),
+# serve it from root so the container functions as an all-in-one deployment.
+FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")

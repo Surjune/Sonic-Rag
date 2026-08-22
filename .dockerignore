@@ -1,0 +1,35 @@
+# Build context, not build output.
+#
+# Without this the ~775MB of local artifacts and ~460MB of parquet upload to
+# the daemon on every build, before a single layer is cached. The Dockerfile
+# fetches the artifacts itself from a Release, so the local copies are dead
+# weight here.
+
+backend/artifacts/
+backend/data/
+backend/.venv/
+.venv/
+venv/
+
+frontend/node_modules/
+frontend/dist/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets never enter an image layer; Render injects them as environment
+# variables at runtime.
+.env
+.env.local
+.env.*.local
+
+.git/
+.github/
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

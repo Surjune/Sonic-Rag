@@ -12,7 +12,9 @@ of the work itself.
 
 from __future__ import annotations
 
+import json
 import pickle
+import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Any, Sequence
@@ -21,7 +23,9 @@ import faiss
 import numpy as np
 
 from app.config import (
+    CHUNK_DB_PATH,
     DEFAULT_TOP_K,
+    EMBED_THREADS,
     EMBEDDING_MODEL,
     HNSW_EF_SEARCH,
     INDEX_PATH,
@@ -80,16 +84,21 @@ class RetrievalEngine:
 
     def __init__(self) -> None:
         self._index: faiss.Index | None = None
+        # Populated only on the pickle fallback path; with a SQLite store the
+        # chunks stay on disk and this stays empty, which is the entire point.
         self._chunks: list[dict[str, Any]] = []
+        self._db: sqlite3.Connection | None = None
         self._meta: dict[str, Any] = {}
         self._embedder: Any = None
 
     def load(self) -> None:
         """Load artifacts from disk. Called once during startup."""
-        if not INDEX_PATH.exists() or not METADATA_PATH.exists():
+        has_store = CHUNK_DB_PATH.exists() or METADATA_PATH.exists()
+        if not INDEX_PATH.exists() or not has_store:
             raise IndexNotLoadedError(
                 "Vector index artifacts are missing.",
-                detail=f"expected {INDEX_PATH.name} and {METADATA_PATH.name}; "
+                detail=f"expected {INDEX_PATH.name} and one of "
+                f"{CHUNK_DB_PATH.name} / {METADATA_PATH.name}; "
                 "run `python -m app.indexer` to build them",
             )
 
@@ -98,12 +107,23 @@ class RetrievalEngine:
         self._index = faiss.read_index(str(INDEX_PATH))
         self._index.hnsw.efSearch = HNSW_EF_SEARCH
 
-        with METADATA_PATH.open("rb") as handle:
-            payload = pickle.load(handle)
-        self._chunks = payload["chunks"]
-        self._meta = payload.get("meta", {})
+        if CHUNK_DB_PATH.exists():
+            # check_same_thread=False because retrieval runs in a worker
+            # thread; every access here is a read, so there is nothing to
+            # serialise against.
+            self._db = sqlite3.connect(str(CHUNK_DB_PATH), check_same_thread=False)
+            self._db.row_factory = sqlite3.Row
+            row = self._db.execute("SELECT json FROM meta WHERE id = 1").fetchone()
+            self._meta = json.loads(row["json"]) if row else {}
+        else:
+            # An artifact set built before the SQLite store existed. Costs the
+            # full 516MB, but runs rather than refusing to start.
+            with METADATA_PATH.open("rb") as handle:
+                payload = pickle.load(handle)
+            self._chunks = payload["chunks"]
+            self._meta = payload.get("meta", {})
 
-        self._embedder = TextEmbedding(model_name=EMBEDDING_MODEL)
+        self._embedder = TextEmbedding(model_name=EMBEDDING_MODEL, threads=EMBED_THREADS)
         # First inference initializes the ONNX session. Doing it now keeps that
         # one-off cost out of the first user's measured latency.
         list(self._embedder.embed(["warmup"]))
@@ -152,7 +172,9 @@ class RetrievalEngine:
         for score, position in zip(scores[0], indices[0]):
             if position < 0:  # FAISS pads short result sets with -1
                 continue
-            chunk = self._chunks[position]
+            chunk = self._chunk_at(int(position))
+            if chunk is None:
+                continue
             hits.append(
                 Hit(
                     chunk_id=chunk["chunk_id"],
@@ -166,6 +188,31 @@ class RetrievalEngine:
                 )
             )
         return hits
+
+    def _chunk_at(self, position: int) -> dict[str, Any] | None:
+        """One chunk by its FAISS position, from whichever store is loaded."""
+        if self._db is None:
+            return self._chunks[position] if 0 <= position < len(self._chunks) else None
+
+        row = self._db.execute(
+            "SELECT chunk_id, parent_id, query_id, is_selected, text_english, "
+            "parent_english, hi, ta FROM chunk WHERE pos = ?",
+            (position,),
+        ).fetchone()
+        if row is None:
+            return None
+        # Rebuilt into the shape the pickle produced, so callers cannot tell
+        # which store answered.
+        translations = {k: row[k] for k in ("hi", "ta") if row[k]}
+        return {
+            "chunk_id": row["chunk_id"],
+            "parent_id": row["parent_id"],
+            "query_id": row["query_id"],
+            "text_english": row["text_english"],
+            "parent_english": row["parent_english"],
+            "translations": translations,
+            "is_selected": bool(row["is_selected"]),
+        }
 
     def build_contexts(self, hits: Sequence[Hit]) -> list[str]:
         """Context passages for the prompt, de-duplicated by parent.

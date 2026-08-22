@@ -161,6 +161,12 @@ body {
  * The header hosts popovers that hang below it, across the nav and the main
  * panel.
  *
+ * `:not(.fixed)` has to be repeated here. The rule above needs it to leave the
+ * fixed navigation alone, and that makes it (0,2,0) -- higher than a bare
+ * `.grid-backdrop > header` at (0,1,1), because :not() carries the specificity
+ * of its argument. Without matching it, the catch-all wins and puts the header
+ * back to z-index 1, which is the bug this rule exists to fix.
+ *
  * Those are siblings, and the rule above gives all three z-index 1, which
  * makes each a stacking context. A z-50 inside the header cannot escape its
  * own context, so the nav and the panel -- later in document order -- painted
@@ -168,7 +174,7 @@ body {
  * the lower half disappeared behind the visualizer. Raising the header lifts
  * the whole context, popover included.
  */
-.grid-backdrop > header {
+.grid-backdrop > header:not(.fixed) {
   z-index: 30;
 }
 
