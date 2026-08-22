@@ -14,6 +14,7 @@ import {
   Volume2,
   Zap,
   VolumeX,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Orb } from '../components/Orb'
@@ -510,7 +511,8 @@ export function Playground({
               <span className="hidden sm:inline">{recording ? 'Stop' : 'Speak'}</span>
             </button>
 
-            <input
+            <div className="relative min-w-0 flex-1">
+              <input
               value={text}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
@@ -523,8 +525,24 @@ export function Playground({
               placeholder="Ask in English, हिन्दी, or தமிழ்…"
               /* 16px on mobile: iOS Safari zooms the whole page in on focus
                  for anything smaller, and never zooms back out. */
-              className="h-11 w-full min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
+              className="h-11 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-900/60 pr-11 pl-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
             />
+              {text && (
+                <button
+                  type="button"
+                  aria-label="Clear question"
+                  title="Clear question"
+                  disabled={busy || recording}
+                  onClick={(event) => {
+                    setText('')
+                    event.currentTarget.parentElement?.querySelector('input')?.focus()
+                  }}
+                  className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-slate-400 transition hover:text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-500 disabled:opacity-40"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
 
             <select
               value={language}
