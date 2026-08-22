@@ -13,8 +13,18 @@ export function Panel({
 }
 
 export function SectionTitle({ icon, title, hint }: { icon?: ReactNode; title: string; hint?: string }) {
+  /*
+    The hint wraps to its own line rather than competing for the title's.
+
+    Without `flex-wrap` the two shared one row and both shrank: at 360px
+    "Explore retrieval" broke into two lines with "retrieval only — no model
+    call" breaking into two beside it, baseline-aligned, so neither second line
+    lined up with anything. Wrapping only changes what was already overflowing
+    -- wherever the row fits, which is everywhere above a phone, this renders
+    identically.
+  */
   return (
-    <div className="flex items-baseline gap-2">
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
       {icon}
       <h2 className="text-sm font-semibold tracking-wide text-slate-200 uppercase">{title}</h2>
       {hint && <span className="text-xs text-slate-500">{hint}</span>}

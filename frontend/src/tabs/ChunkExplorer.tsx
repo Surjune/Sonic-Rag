@@ -137,13 +137,16 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
       <StrategyMatrix report={comparison} />
 
       <Panel className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:justify-between">
           <SectionTitle
             icon={<Scissors size={14} className="text-cyan-400" />}
             title="Split a passage"
             hint="compare where each strategy cuts"
           />
-          <div className="flex flex-wrap gap-1">
+          {/* `justify-between` is right on one row and wrong on two: once the
+              buttons wrapped below the heading they stayed jammed against the
+              right edge, aligned to nothing. Left-aligned once wrapped. */}
+          <div className="flex flex-wrap gap-1.5">
             {SAMPLES.map((sample, index) => (
               <button
                 key={sample.label}
@@ -179,14 +182,17 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && void explore()}
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none"
+            /* h-11 to match the button, and 16px text on a phone: iOS Safari
+               zooms the page in on focus for anything smaller and never zooms
+               back out. */
+            className="h-11 min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none sm:text-sm"
             placeholder="Query the index…"
           />
           <button
             type="button"
             onClick={() => void explore()}
             disabled={loading}
-            className="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-40"
+            className="flex h-11 shrink-0 items-center gap-2 rounded-lg bg-cyan-500 px-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400 disabled:opacity-40 sm:px-4"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             Search
@@ -266,7 +272,7 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
           </div>
         </Panel>
       ) : (
-        <Panel className="min-h-40 flex-1">
+        <Panel className="flex min-h-40 flex-1 flex-col justify-center">
           <EmptyState message="Run a search to inspect how passages split into embedded child chunks." />
         </Panel>
       )}

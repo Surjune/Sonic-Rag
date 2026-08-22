@@ -41,7 +41,17 @@ function StrategyColumn({ preview }: { preview: StrategyPreview }) {
         </div>
       </div>
 
-      <div className="max-h-80 space-y-1.5 overflow-y-auto p-2">
+      {/*
+        The height cap belongs to the side-by-side view.
+
+        Four columns abreast need to agree on a height or the row is ragged, so
+        320px with a scrollbar is right from lg. Stacked on a phone it is
+        wrong: each strategy became its own little scroll box inside a page
+        that already scrolls, and the card at the boundary was sliced through
+        the middle with nothing to say it continued. The passages here are
+        short, so below lg the column simply shows all of them.
+      */}
+      <div className="space-y-1.5 p-2 lg:max-h-80 lg:overflow-y-auto">
         {preview.chunks.map((chunk) => (
           <div
             key={chunk.index}
@@ -83,7 +93,13 @@ export function ChunkPreview({ preview }: { preview: PreviewResponse | null }) {
           <StrategyColumn key={strategy.strategy} preview={strategy} />
         ))}
       </div>
-      <div className="mt-3 flex flex-wrap gap-2 font-mono text-[10px] text-slate-500">
+      {/*
+        Two even columns on a phone rather than a wrapping row. The four labels
+        are different lengths, so wrapping left a ragged right edge and put the
+        break in a different place at every width; a grid gives them one edge
+        to line up on.
+      */}
+      <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px] text-slate-500 sm:flex sm:flex-wrap">
         {Object.entries(preview.latency)
           .filter(([key]) => key !== 'total')
           .map(([name, ms]) => (
