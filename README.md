@@ -7,6 +7,10 @@ Ask a question by voice or text in **English, Hindi or Tamil** and get an answer
 grounded in retrieved passages — or an honest refusal when nothing relevant was
 found.
 
+**Live: [www.lightninglogics.me](https://www.lightninglogics.me)** — frontend on
+Vercel, backend on a Render free instance. The backend sleeps after 15 minutes
+idle, so a first visit after a quiet spell takes about a minute to wake.
+
 ---
 
 ## Quick start
@@ -133,16 +137,15 @@ scales the way intuition suggests. What grows instead is startup and memory:
 a host can run this, not the per-query numbers -- and they are what the
 memory-footprint section below is about.
 
-**Full pipeline, including generation** (n=18 of 20; the other two hit a Groq
-free-tier 429 mid-run, not a pipeline fault):
+**Full pipeline, including generation** (n=8, 0 errors):
 
-| Stage | P50 | P70 | P90 | P95 | P100 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Embedding | 55.51ms | 58.52ms | 60.12ms | 63.54ms | 63.54ms |
-| FAISS search | 0.42ms | 0.44ms | 0.57ms | 0.84ms | 0.84ms |
-| **Groq TTFT** | **468.58ms** | 493.05ms | 611.67ms | 640.48ms | 640.48ms |
-| Groq total generation | 528.46ms | 579.54ms | 721.66ms | 761.41ms | 761.41ms |
-| **Full pipeline total** | **578.13ms** | **634.86ms** | **777.11ms** | **814.55ms** | 814.55ms |
+| Stage | P50 | P70 | P95 |
+| --- | ---: | ---: | ---: |
+| Embedding | 47.53ms | 48.01ms | 51.92ms |
+| FAISS search | 1.12ms | 1.27ms | 1.60ms |
+| **Groq TTFT** | **470.81ms** | 482.67ms | 606.23ms |
+| Groq total generation | 484.12ms | 490.17ms | 608.30ms |
+| **Full pipeline total** | **533.22ms** | **538.85ms** | **662.00ms** |
 
 **Honest reading:** retrieval alone comfortably clears sub-200ms, even at
 P100. The full pipeline does not, at any percentile, once a network-bound
@@ -157,6 +160,29 @@ earlier run). Fixed by capping `reasoning_effort` to `"low"` and raising
 failures in the run above are a different thing entirely — quota exhaustion
 from repeated benchmarking, where the harness rotated to the backup key and
 then opened the circuit, exactly as designed.
+
+### What the numbers do on the deployed instance
+
+Every figure above is local. The deployment is a Render free instance -- a
+shared vCPU in a US region -- and the two differences pull in opposite
+directions:
+
+| Stage | Local (India) | Deployed (Render, US) |
+| --- | ---: | ---: |
+| Embedding | 47ms | **273ms** |
+| FAISS search | 1.2ms | 3ms |
+| **Groq TTFT** | 470ms | **181ms** |
+| **To first word** | 604ms | **457ms** |
+
+Embedding is CPU-bound and gets much worse on a shared core. Groq gets much
+better, because the round trip from a US region is far shorter than from India
+-- which is the same effect that makes Sarvam, hosted in India, worse from
+there. Net, the deployed instance answers *sooner* than the local machine does
+against Groq, despite the weaker CPU.
+
+The 273ms is the ONNX thread pool sizing itself from the host's core count and
+then contending for one shared vCPU; `EMBED_THREADS=1` is what the memory
+section below measures at 47ms against 223ms on a single core.
 
 ### Where the 200ms actually goes: Groq vs a local model
 
@@ -470,31 +496,40 @@ Every external client is mocked via `httpx.MockTransport`.
 ## Layout
 
 ```
+Dockerfile             backend image for Render; artifacts baked in at build
+render.yaml            service definition, health check, environment
 backend/
   app/
-    main.py          FastAPI routes, SSE streaming, per-stage telemetry
-    retrieval.py     FAISS + embedding singleton
-    chunkers.py      four strategies behind one interface
-    chunk_eval.py    Recall@K / MRR scoring across strategies
-    guardrails.py    injection, unsafe content, PII, grounding
-    harness.py       Groq client, tools, retries, circuit breaker
-    stt_service.py   Sarvam primary, Whisper fallback
-    credentials.py   key rotation
-  artifacts/         prebuilt FAISS index (committed)
-  benchmark.py       P50/P70/P100 profiler
+    main.py            FastAPI routes, SSE streaming, per-stage telemetry
+    config.py          every tuned constant, with the measurement behind it
+    retrieval.py       FAISS + SQLite chunk store + embedding singleton
+    indexer.py         builds the index; --from-pickle and --quantize convert
+    chunkers.py        four strategies behind one interface
+    chunk_eval.py      Recall@K / MRR scoring across strategies
+    guardrails.py      injection, unsafe content, PII, silence, grounding
+    harness.py         Groq and Ollama, tools, retries, circuit breaker
+    stt_service.py     Sarvam primary, Whisper fallback
+    tts_service.py     Sarvam bulbul, answers spoken back
+    translation.py     script detection, typed Indic to English
+    credentials.py     key rotation
+  artifacts/           downloaded by the setup scripts, never committed
+  benchmark.py         P50/P70/P100 profiler, takes a --url
+  compare_providers.py Groq against a local model, same prompts
 frontend/
   src/
-    components/Orb.tsx   audio-reactive GLSL visualizer
-    tabs/                playground, analytics, chunking, guardrails
+    components/Orb.tsx        audio-reactive GLSL visualizer
+    components/ProviderSwitch.tsx  Groq or local, with a one-click model pull
+    tabs/                     playground, analytics, chunking, guardrails
 ```
 
 ---
 
 ## Known limitations
 
-- **Sub-200ms is not met end-to-end** with generation, only for retrieval —
-  542ms P50 / 1739ms P100 full pipeline vs. 53ms P50 / 66ms P100 retrieval
-  alone. See the latency section.
+- **Sub-200ms is not met end-to-end** with generation on Groq, only for
+  retrieval: 533ms P50 for the full pipeline against 48ms P50 for retrieval
+  alone. It *is* met with a local model — 177.6ms P50 to first token — which
+  needs a GPU the deployment does not have. See the latency section.
 - **Hindi and Tamil injection patterns are a narrow starter set** and want a
   native-speaker review before being relied on.
 - **The chunking comparison is a build output and is not committed.** The
@@ -513,4 +548,6 @@ frontend/
   private repository return 404 to an unauthenticated download, so making it
   private again would break `setup.ps1` and `setup.sh` for everyone without
   any error message pointing at the cause.
-- **No authentication or rate limiting.** The deployment is anonymous.
+- **No authentication or rate limiting.** The deployed URL is anonymous, so
+  anyone who finds it can spend the Groq and Sarvam free-tier quotas. The first
+  symptom would be a visitor meeting an open circuit breaker.
