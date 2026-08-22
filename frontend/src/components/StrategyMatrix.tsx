@@ -84,7 +84,17 @@ export function StrategyMatrix({ report }: { report: CompareResponse | null }) {
         hint={`${report.queries} queries · ${report.passages} passages · gold labels from is_selected`}
       />
 
-      <div className="mt-3 overflow-x-auto">
+      {/*
+        Seven columns will not fit a phone and should not try -- squeezed to
+        393px the recall bars become slivers and the descriptions become one
+        word per line. It scrolls sideways instead, which is fine as long as
+        you can tell that it does: before this the table was simply cut off
+        mid-number at the right edge, which reads as a broken table rather than
+        as more table. The fade says there is more, and the line underneath
+        says what.
+      */}
+      <div className="relative mt-3">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-left text-xs">
           <thead className="text-[10px] tracking-widest text-slate-500 uppercase">
             <tr>
@@ -148,7 +158,19 @@ export function StrategyMatrix({ report }: { report: CompareResponse | null }) {
             })}
           </tbody>
         </table>
+        </div>
+
+        {/* Sits over the scroll container, not inside it, so it stays pinned to
+            the right edge instead of scrolling away with the content. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[color-mix(in_srgb,var(--color-panel)_92%,transparent)] to-transparent lg:hidden"
+        />
       </div>
+
+      <p className="mt-1.5 font-mono text-[10px] tracking-wider text-slate-500 uppercase lg:hidden">
+        Swipe the table for recall, MRR and search time →
+      </p>
 
       <div className="mt-3 flex items-start gap-2 rounded border border-slate-800 bg-slate-900/40 p-2.5">
         <Database size={13} className="mt-0.5 shrink-0 text-cyan-400" />

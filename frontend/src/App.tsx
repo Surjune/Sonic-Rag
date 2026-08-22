@@ -88,7 +88,7 @@ export default function App() {
   const threshold = health?.similarity_threshold ?? 0.65
 
   return (
-    <div className="grid-backdrop flex min-h-[100dvh] flex-col md:h-full">
+    <div className="grid-backdrop flex min-h-[100dvh] flex-col lg:h-full">
       {/*
         One row: product on the left, event wordmark centred, status on the
         right. The wordmark is absolutely positioned rather than placed in the
@@ -123,7 +123,15 @@ export default function App() {
           </div>
         </div>
 
-        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+        {/*
+          `ml-auto` is right on one row and wrong on two. When the status block
+          wraps below the wordmark -- which it always does on a phone -- it
+          stayed pushed to the right edge, leaving a gap under the logo and no
+          alignment with anything. Full width and left-aligned once wrapped;
+          `md:ml-auto` restores the right edge at the width where it shares a
+          row again.
+        */}
+        <div className="flex w-full shrink-0 flex-wrap items-center gap-2 md:ml-auto md:w-auto">
           {healthError ? (
             <Badge tone="rose">backend unreachable</Badge>
           ) : health ? (
@@ -149,6 +157,30 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {/*
+        The wordmark again, phones only, as a watermark in the backdrop.
+
+        The panels do not fill a phone screen and should not -- but the space
+        they leave was reading as absence rather than as room. This gives the
+        gap something to be: the event's own mark, ghosted far enough back that
+        it never competes with the interface in front of it, and visible only
+        where the interface is not. `fixed` so it stays put on the tabs that
+        scroll for thousands of pixels, and z-0 so every panel paints over it.
+
+        Above md the illustration is the backdrop and the mark sits in the
+        header instead, so this is not needed there.
+      */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 top-1/2 z-0 flex -translate-y-1/2 justify-center md:hidden"
+      >
+        <div className="goa-wordmark goa-wordmark-watermark">
+          <span>HACKER</span>
+          <span className="goa-chip">गोवा</span>
+          <span>HOUSE</span>
+        </div>
+      </div>
 
       <nav className="hidden items-center gap-1 overflow-x-auto border-b border-white/10 px-3 py-2 md:flex">
         {TABS.map(({ id, num, label, icon: Icon }) => {
@@ -194,9 +226,28 @@ export default function App() {
         </div>
       </nav>
 
+      {/*
+        A flex column below lg, a plain block above it.
+
+        The tabs used to hang off `height: 100%` all the way down, which a
+        phone never resolved -- `.grid-backdrop` is `min-height` there, not
+        `height`, so the chain has no definite height to be a percentage of and
+        every tab collapsed to its content. That is where the dead third of the
+        Playground screen came from. Flex distributes real space instead of
+        asking for a percentage of an unknown. Above lg the body genuinely is
+        100dvh, so the percentage chain works and is left alone.
+      */}
+      {/*
+        The bottom padding reserves whatever is floating over the page, and
+        that is not the same set at every width. Below md: the composer and the
+        tab bar. At md the tab bar is gone but the composer is still fixed --
+        which had only `pb-4` under it, so the starters sat underneath the
+        composer with no way to reach them. From lg the composer joins the flow
+        and nothing needs reserving.
+      */}
       <main
-        className={`min-h-0 flex-1 p-3 md:p-4 md:pb-4 ${
-          tab === 'playground' ? 'pb-[10.5rem]' : 'pb-24'
+        className={`flex min-h-0 flex-1 flex-col p-3 md:p-4 lg:block ${
+          tab === 'playground' ? 'pb-[10.5rem] md:pb-24 lg:pb-4' : 'pb-24 md:pb-4'
         }`}
       >
         <AnimatePresence mode="wait">
@@ -206,7 +257,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.16 }}
-            className="h-full"
+            className="flex min-h-0 flex-1 flex-col lg:block lg:h-full lg:flex-none"
           >
             {tab === 'playground' && (
               <Playground

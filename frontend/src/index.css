@@ -43,10 +43,18 @@ body {
  * 100%` is measured against a viewport that changes size as the address bar
  * hides, so the bottom of the page ends up under the browser chrome.
  *
- * Below md the page is an ordinary scrolling document instead. dvh rather
+ * Below that the page is an ordinary scrolling document instead. dvh rather
  * than vh, because dvh tracks the address bar and vh does not.
+ *
+ * The threshold is lg, not md. It used to be md, which locked the viewport a
+ * full breakpoint before the two-column layout that justifies it arrives at
+ * lg -- so between 768px and 1023px the interface was a single column, taller
+ * than the screen, inside a shell that refused to scroll. The visualizer, the
+ * answer and the retrieved passages were all squeezed to fit and the bottom of
+ * the page was simply unreachable. A tablet in portrait scrolls now, which is
+ * what a tablet in portrait should do.
  */
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   html,
   body,
   #root {
@@ -76,10 +84,7 @@ body {
  * fixed` also forces a repaint on every scroll frame in mobile Safari, which is
  * exactly the wrong cost on the device with the least to spend.
  *
- * Below md the backdrop is the gradient alone -- the scrim below already
- * carries the palette, so the result is the same colour world without the
- * cropped scene or the scroll cost. The illustration returns at md, where
- * there is room for it to be the picture it was drawn as.
+ * The phone gets its own backdrop instead, built below.
  */
 .grid-backdrop {
   position: relative;
@@ -124,6 +129,66 @@ body {
       transparent 40%,
       color-mix(in srgb, var(--color-green-deep) 55%, transparent) 100%
     );
+}
+
+/*
+ * The phone backdrop.
+ *
+ * What was here before was the desktop scrim with the illustration removed --
+ * two flat greens over a third, which is not a design so much as what is left
+ * when you take the picture away. It read as an unfinished surface, and on the
+ * device where the backdrop is most of what you see.
+ *
+ * Built deliberately instead, from the same three poster colours the rest of
+ * the interface uses: a warm yellow sun low on the horizon behind the header,
+ * a pink bloom off the right edge, and a green cast rising from the bottom
+ * where the navigation sits. Large, soft and low-opacity, so it stays a lit
+ * room rather than a pattern competing with the panels in front of it.
+ *
+ * `position: fixed` matters twice. The Chunking tab is over 8,000px tall, and
+ * an absolute layer would stretch every gradient across the whole of it until
+ * the composition disappeared. Fixed also keeps the layer on the compositor,
+ * so scrolling does not repaint it -- which is the reason the illustration's
+ * `background-attachment: fixed` was rejected for phones in the first place.
+ */
+@media (max-width: 767px) {
+  .grid-backdrop {
+    /* Deeper than the desktop ground: the glows below need somewhere dark to
+       be bright against, and the old mid-green washed them out. */
+    background-color: #04241a;
+  }
+
+  .grid-backdrop::before {
+    position: fixed;
+    background:
+      radial-gradient(
+        118% 46% at 50% -6%,
+        color-mix(in srgb, var(--color-goa-yellow) 20%, transparent) 0%,
+        transparent 62%
+      ),
+      radial-gradient(
+        76% 34% at 108% 22%,
+        color-mix(in srgb, var(--color-goa-pink) 17%, transparent) 0%,
+        transparent 68%
+      ),
+      radial-gradient(
+        96% 42% at -14% 78%,
+        color-mix(in srgb, var(--color-green-mid) 62%, transparent) 0%,
+        transparent 66%
+      ),
+      radial-gradient(
+        130% 60% at 50% 108%,
+        color-mix(in srgb, var(--color-green-mid) 40%, transparent) 0%,
+        transparent 60%
+      ),
+      linear-gradient(to bottom, #05291d 0%, #04241a 46%, #031d15 100%);
+  }
+
+  /* Same reasoning: grain that stretches over an 8,000px page stops being
+     grain. Fixed keeps it at one density wherever you have scrolled to. */
+  .grid-backdrop::after {
+    position: fixed;
+  }
 }
 
 /*
@@ -253,6 +318,42 @@ body {
   transform: rotate(-6deg);
   letter-spacing: 0;
   text-shadow: 0 1px 0 #b31563;
+}
+
+/*
+ * The same mark, scaled up and pushed back, as the phone backdrop's centre.
+ *
+ * Faint enough to be atmosphere: it has to survive being the only thing in a
+ * 200px gap without ever drawing attention away from the panel above it. The
+ * hard drop shadows are dropped rather than dimmed -- at 9% opacity they stop
+ * reading as depth and start reading as a blur.
+ */
+.goa-wordmark-watermark {
+  /* Sized to sit inside the screen with margin either side. Wider than this
+     and the serifs run off both edges, which reads as a rendering fault
+     rather than as a mark. */
+  font-size: clamp(1.35rem, 7vw, 2.1rem);
+}
+
+/*
+ * Faded by colour, not by `opacity`.
+ *
+ * A group opacity multiplies through everything underneath it, and it turned
+ * the pink chip into a grey smudge -- the one piece of colour in the mark, and
+ * the piece that makes it recognisable. Setting each part's own alpha lets the
+ * letters drop back to a whisper while the chip keeps enough pink to still be
+ * pink.
+ */
+.goa-wordmark-watermark span {
+  color: color-mix(in srgb, var(--color-goa-yellow) 12%, transparent);
+  /* Hard offset shadows stop reading as depth this far back and start reading
+     as a blur. */
+  text-shadow: none;
+}
+
+.goa-wordmark-watermark .goa-chip {
+  background: color-mix(in srgb, var(--color-goa-pink) 20%, transparent);
+  color: color-mix(in srgb, var(--color-goa-yellow) 40%, transparent);
 }
 
 /* High-contrast condensed serif, as used for FRAME YOUR GOA on the poster. */

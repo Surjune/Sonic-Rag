@@ -183,9 +183,45 @@ export function Analytics({
   )
 
   if (allSamples.length === 0) {
+    /*
+      An empty tab is still a tab someone opened, and one grey sentence adrift
+      in a screen of nothing answers none of what they came for. This says what
+      will appear, names the stages it will be measured across, and gives them
+      the way back -- so the emptiness reads as "nothing asked yet" rather than
+      as a page that failed to load.
+    */
     return (
-      <Panel className="h-full">
-        <EmptyState message="No requests yet. Ask something in the Playground and the percentiles will build here from real measurements." />
+      <Panel className="flex min-h-[24rem] flex-1 flex-col items-center justify-center gap-5 px-5 py-10 text-center lg:h-full">
+        <span className="rounded-full border border-cyan-400/25 bg-cyan-400/5 p-4">
+          <Activity size={26} className="text-cyan-300/80" />
+        </span>
+        <div className="max-w-xs space-y-2">
+          <h2 className="text-sm font-semibold tracking-wide text-slate-200 uppercase">
+            Nothing measured yet
+          </h2>
+          <p className="text-xs leading-relaxed text-slate-400">
+            P50, P70, P90 and P100 build here from your own requests. Nothing is
+            seeded, so the numbers are only ever ones this session actually
+            produced.
+          </p>
+        </div>
+
+        {/* The stages it will fill in, so the shape of the answer is visible
+            before there is an answer. */}
+        <div className="flex w-full max-w-xs flex-wrap justify-center gap-1.5">
+          {STAGES.map((stage) => (
+            <span
+              key={stage.key}
+              className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[10px] tracking-wider text-slate-500 uppercase"
+            >
+              {stage.label}
+            </span>
+          ))}
+        </div>
+
+        <p className="font-mono text-[10px] tracking-[0.18em] text-slate-500 uppercase">
+          Ask something in the Playground
+        </p>
       </Panel>
     )
   }
@@ -197,8 +233,8 @@ export function Analytics({
           <SectionTitle title="Cohort" hint="voice and text are not pooled" />
           {cohortPicker}
         </Panel>
-        <Panel className="flex-1">
-          <EmptyState message="No requests in this cohort yet." />
+        <Panel className="flex-1 py-12">
+          <EmptyState message={`No ${cohort} requests yet. Ask one in the Playground, or switch cohort above.`} />
         </Panel>
       </div>
     )

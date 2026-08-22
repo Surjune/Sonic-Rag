@@ -353,13 +353,33 @@ export function Playground({
   // the answer on screen together at desktop sizes; on a phone the same pair
   // traps the answer inside a viewport-height box that the orb already fills,
   // so both become lg-only and the page scrolls instead.
+  //
+  // A flex column rather than a grid below lg, so the slack has somewhere to
+  // go. As a grid every row took its natural height and whatever was left over
+  // -- around a third of the screen before the first question -- became dead
+  // ground between the starters and the composer. Flex hands that space to the
+  // visualizer, which is the one element here that is better for having it,
+  // and the starters end up within reach of a thumb instead of stranded
+  // mid-screen. Once an answer arrives the content reclaims it and the orb
+  // falls back to its minimum.
   return (
-    <div className="grid grid-cols-1 gap-3 md:gap-4 lg:h-full lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 md:gap-4 lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
       {/* Visualizer + input */}
       <div className="flex min-h-0 flex-col gap-3 md:gap-4">
+        {/*
+          Orb and HUD, in one positioning context.
+
+          On a wide screen the HUD is an overlay pinned to the bottom of the
+          visualizer, which is where it has always been. On a phone it is an
+          ordinary block underneath: sitting over the orb it covered the lower
+          third of it, and the panel is short enough there that the two were
+          fighting for the same 200px. Out in the flow it also gets the width
+          to show every stage rather than the two that fitted.
+        */}
+        <div className="relative flex min-h-0 flex-col gap-3 lg:block lg:flex-1">
         {/* panel-glass so the beach illustration reads as the orb's setting
             rather than being hidden behind an opaque surface. */}
-        <Panel className="panel-glass relative h-[30vh] max-h-[280px] min-h-[190px] overflow-hidden lg:h-auto lg:max-h-none lg:min-h-0 lg:flex-1">
+        <Panel className="panel-glass relative h-[26vh] max-h-[248px] min-h-[176px] overflow-hidden lg:h-full lg:max-h-none lg:min-h-0">
           {/*
             DPR is capped and adaptive. On an integrated GPU a 2x device pixel
             ratio quadruples fragment work, and during a local demo the browser
@@ -410,10 +430,15 @@ export function Playground({
                   className="flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-300/50 bg-emerald-300/10 px-2 py-1 font-mono text-[10px] tracking-wider whitespace-nowrap text-emerald-200 uppercase shadow-lg backdrop-blur-sm transition hover:bg-emerald-300/20 sm:px-2.5"
                 >
                   <Zap size={11} className="animate-pulse" />
-                  {/* The full sentence needs a row it does not get on a phone,
-                      where it wrapped across the status label beside it. */}
-                  <span className="hidden sm:inline">for lower latency use local · </span>
-                  &lt;200ms
+                  {/*
+                    The full sentence needs a row it does not get on a phone,
+                    where it wrapped across the status label beside it. What is
+                    left still has to name the offer: "<200ms" on its own, next
+                    to a reading of 716ms, looks like a claim about the request
+                    that just finished rather than one about the other backend.
+                  */}
+                  <span className="hidden sm:inline">for lower latency use </span>
+                  local &lt;200ms
                 </button>
               )}
               {response?.model && (
@@ -424,29 +449,42 @@ export function Playground({
             </div>
           </div>
 
-          {/* Latency HUD */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3 md:p-4">
-            <div className="panel grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg px-3 py-2 sm:grid-cols-6 md:px-4 md:py-3">
-              <Metric className="hidden sm:flex" label="STT" value={latency?.stt} />
-              <Metric className="hidden sm:flex" label="Embed" value={latency?.embed} />
-              <Metric className="hidden sm:flex" label="FAISS" value={latency?.faiss} budgetMs={5} />
-              <Metric className="hidden sm:flex" label="Model TTFT" value={latency?.llm_ttft} />
-              {/*
-                The latency figure: request in, first token out. Everything
-                after it is the answer still arriving, which the reader is
-                already consuming rather than waiting on.
-              */}
-              <Metric label="To answer" value={latency?.first_output ?? latency?.total} />
-              {/*
-                Kept, and kept honest. Kept because "through to final output"
-                is what the brief asks for and dropping it would flatter the
-                numbers; secondary because it is a throughput measure, not a
-                latency one.
-              */}
-              <Metric label="Complete" value={latency?.total} />
-            </div>
-          </div>
         </Panel>
+
+        {/*
+          Latency HUD.
+
+          Every stage shows on every screen now. Hiding four of the six on a
+          phone left "to answer" and "complete" with nothing to explain them,
+          which is exactly backwards: the per-stage breakdown is the thing this
+          project is judged on, and it was the part a phone never saw.
+        */}
+        <div
+          className={`lg:pointer-events-none lg:absolute lg:inset-x-0 lg:bottom-0 lg:block lg:p-4 ${
+            latency ? '' : 'hidden'
+          }`}
+        >
+          <div className="panel grid grid-cols-3 gap-x-3 gap-y-2.5 rounded-lg px-3 py-2.5 sm:grid-cols-6 md:px-4 md:py-3">
+            <Metric label="STT" value={latency?.stt} />
+            <Metric label="Embed" value={latency?.embed} />
+            <Metric label="FAISS" value={latency?.faiss} budgetMs={5} />
+            <Metric label="Model TTFT" value={latency?.llm_ttft} />
+            {/*
+              The latency figure: request in, first token out. Everything
+              after it is the answer still arriving, which the reader is
+              already consuming rather than waiting on.
+            */}
+            <Metric label="To answer" value={latency?.first_output ?? latency?.total} accent />
+            {/*
+              Kept, and kept honest. Kept because "through to final output"
+              is what the brief asks for and dropping it would flatter the
+              numbers; secondary because it is a throughput measure, not a
+              latency one.
+            */}
+            <Metric label="Complete" value={latency?.total} />
+          </div>
+        </div>
+        </div>
 
         <Panel className="fixed inset-x-0 bottom-0 z-30 rounded-none border-x-0 border-b-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom)+3.5rem)] lg:static lg:rounded-xl lg:border lg:p-3 lg:pb-3">
           {/*
@@ -516,7 +554,7 @@ export function Playground({
       </div>
 
       {/* Answer + retrieved context */}
-      <div className="flex min-h-0 flex-col gap-3 md:gap-4 lg:overflow-y-auto lg:pr-1">
+      <div className="mt-auto flex min-h-0 flex-col gap-3 md:gap-4 lg:mt-0 lg:overflow-y-auto lg:pr-1">
         {!response && !errorMessage && state === 'idle' && (
           <Panel className="p-4">
             <SectionTitle title="Try asking" hint="questions this corpus can answer" />
@@ -559,8 +597,21 @@ export function Playground({
         {response && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <Panel className="p-4">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+              {/*
+                Two rows rather than one wrapping row.
+
+                All six of these -- the label, two speech controls and three
+                status badges -- were in a single `flex-wrap`, which on a phone
+                broke wherever it happened to run out of width and left the
+                heading sharing a line with a score. Splitting on meaning gives
+                a stable layout at every width: what you can do to the answer on
+                top, what the pipeline decided about it underneath.
+              */}
+              <div className="mb-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
                 <SectionTitle title="Answer" />
+
+                <div className="flex shrink-0 items-center gap-1.5">
 
                 {/*
                   Speech output sits next to the label rather than under the
@@ -618,6 +669,10 @@ export function Playground({
                   auto
                 </button>
 
+                </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
                 {response.blocked ? (
                   <Badge tone="rose">{response.code ?? 'BLOCKED'}</Badge>
                 ) : response.small_talk ? (
@@ -640,6 +695,7 @@ export function Playground({
                     {response.within_budget ? 'within budget' : 'over budget'}
                   </Badge>
                 )}
+                </div>
               </div>
 
               {response.transcript && (

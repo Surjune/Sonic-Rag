@@ -29,6 +29,7 @@ export function Metric({
   unit = 'ms',
   budgetMs,
   mono = true,
+  accent = false,
   className = '',
 }: {
   label: string
@@ -36,16 +37,40 @@ export function Metric({
   unit?: string
   budgetMs?: number
   mono?: boolean
+  /**
+   * Marks the headline figure in a row of stages.
+   *
+   * Six equal readouts give no clue which one answers "how fast was that".
+   * This is the one the project is judged on, so it is the one that is bigger
+   * and brighter -- the others are the breakdown that explains it.
+   */
+  accent?: boolean
   /** Lets a caller hide a stage on small screens without wrapping it. */
   className?: string
 }) {
   const missing = value === undefined
   const over = budgetMs !== undefined && !missing && value > budgetMs
-  const tone = missing ? 'text-slate-600' : over ? 'text-rose-400' : 'text-emerald-300'
+  const tone = missing
+    ? 'text-slate-600'
+    : over
+      ? 'text-rose-400'
+      : accent
+        ? 'text-[var(--color-goa-yellow)]'
+        : 'text-emerald-300'
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] uppercase tracking-widest text-slate-500">{label}</span>
-      <span className={`${tone} ${mono ? 'font-mono' : ''} text-sm tabular-nums`}>
+      <span
+        className={`text-[10px] uppercase tracking-widest ${
+          accent ? 'text-emerald-100/70' : 'text-slate-500'
+        }`}
+      >
+        {label}
+      </span>
+      <span
+        className={`${tone} ${mono ? 'font-mono' : ''} tabular-nums ${
+          accent ? 'text-base font-semibold leading-tight' : 'text-sm'
+        }`}
+      >
         {missing ? '—' : `${value < 1 ? value.toFixed(2) : value.toFixed(0)}${unit}`}
       </span>
     </div>
