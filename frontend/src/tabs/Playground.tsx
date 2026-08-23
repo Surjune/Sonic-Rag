@@ -513,20 +513,22 @@ export function Playground({
 
             <div className="relative min-w-0 flex-1">
               <input
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  void submitText()
-                }
-              }}
-              disabled={busy || recording}
-              placeholder="Ask in English, हिन्दी, or தமிழ்…"
-              /* 16px on mobile: iOS Safari zooms the whole page in on focus
-                 for anything smaller, and never zooms back out. */
-              className="h-11 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-900/60 pr-11 pl-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
-            />
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    void submitText()
+                  } else if (event.key === 'Escape') {
+                    setText('')
+                  }
+                }}
+                disabled={busy || recording}
+                placeholder="Ask in English, हिन्दी, or தமிழ்…"
+                /* 16px on mobile: iOS Safari zooms the whole page in on focus
+                   for anything smaller, and never zooms back out. */
+                className="h-11 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-900/60 pr-11 pl-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
+              />
               {text && (
                 <button
                   type="button"

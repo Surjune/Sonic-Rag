@@ -6,7 +6,7 @@
  * tokens and returns in the retrieval-only latency.
  */
 
-import { Boxes, Layers, Loader2, Scissors, Search } from 'lucide-react'
+import { Boxes, Layers, Loader2, Scissors, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ChunkPreview } from '../components/ChunkPreview'
 import { StrategyMatrix } from '../components/StrategyMatrix'
@@ -178,16 +178,40 @@ export function ChunkExplorer({ threshold }: { threshold: number }) {
           hint="retrieval only — no model call"
         />
         <div className="mt-3 flex gap-2">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => event.key === 'Enter' && void explore()}
-            /* h-11 to match the button, and 16px text on a phone: iOS Safari
-               zooms the page in on focus for anything smaller and never zooms
-               back out. */
-            className="h-11 min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none sm:text-sm"
-            placeholder="Query the index…"
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void explore()
+                } else if (event.key === 'Escape') {
+                  setQuery('')
+                }
+              }}
+              /* h-11 to match the button, and 16px text on a phone: iOS Safari
+                 zooms the page in on focus for anything smaller and never zooms
+                 back out. */
+              className="h-11 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-900/60 pr-11 pl-3 text-base text-slate-100 placeholder:text-slate-600 focus:border-cyan-500/60 focus:outline-none disabled:opacity-40 sm:text-sm"
+              placeholder="Query the index…"
+              disabled={loading}
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear query"
+                title="Clear query"
+                disabled={loading}
+                onClick={(event) => {
+                  setQuery('')
+                  event.currentTarget.parentElement?.querySelector('input')?.focus()
+                }}
+                className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-slate-400 transition hover:text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-500 disabled:opacity-40"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => void explore()}
